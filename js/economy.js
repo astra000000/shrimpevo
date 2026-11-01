@@ -365,9 +365,9 @@ const Economy = (() => {
   function newCareer() {
     const W = Sim.newWorld({ mode: 'career' });
     W.tap = rnd() < .5 ? 'tap_soft' : 'tap_hard';
-    W.inv = {};
+    W.inv = { vial: 1 };
     refreshMarket(W);
-    Sim.log(W, `Bienvenue ! Tu as ${fmt(W.money)}. Ton eau du robinet est ${WATERS[W.tap].name.toLowerCase()}. Commence par acheter un bac dans la boutique.`, 'info', true);
+    Sim.log(W, `Bienvenue ! Tu as ${fmt(W.money)}. Ton eau du robinet est ${WATERS[W.tap].name.toLowerCase()}. Commence par acheter un bac dans la boutique, puis verse ta 🧪 fiole de départ dedans : il sera cyclé tout de suite.`, 'info', true);
     return W;
   }
 

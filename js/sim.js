@@ -70,7 +70,7 @@ const Sim = (() => {
       weather: { rain: 0, rainI: 1, heat: 0, cold: 0 }, power: true, powerUntil: 0,
       tanks: [], cur: 0, nextId: 1, nextTank: 1,
       log: [], stats: { born: 0, dead: {}, maxGen: 0, mutations: 0, sold: 0, earned: 0 }, over: false,
-      money: cfg.mode === 'career' ? START_MONEY : Infinity, inv: {}, bags: [], transfers: [],
+      money: cfg.mode === 'career' ? START_MONEY : Infinity, inv: { vial: 1 }, bags: [], transfers: [],
       bestiary: [], strainStats: {}, listings: [], market: null, nextUid: 1,
     };
     if (cfg.tank) newTank(W, cfg.tank);
@@ -812,6 +812,15 @@ const Sim = (() => {
       const Kb = bactCap(s);
       s.bactA = Math.max(s.bactA, Kb * .3); s.bactB = Math.max(s.bactB, Kb * .3);
       log(W, 'Bactéries ajoutées : le cycle va beaucoup plus vite.', 'info', false, s);
+    },
+    // Fiole de départ (une seule par partie) : bac mûr d'un coup, comme une mise en eau « bac mûr »
+    vial(W, s) {
+      const Kb = bactCap(s);
+      s.bactA = Math.max(s.bactA, Kb * .5); s.bactB = Math.max(s.bactB, Kb * .5);
+      s.w.tan = 0; s.w.no2 = 0;
+      s.soilLeach = 0;
+      s.pools.biofilm = Math.max(s.pools.biofilm, s.cfg.volume * 2);
+      log(W, `🧪 Fiole de départ versée : ${s.name} est cyclé, tu peux y mettre des crevettes.`, 'info', true, s);
     },
   };
   // ---------- Cycle de l'azote ----------

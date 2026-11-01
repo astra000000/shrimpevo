@@ -323,6 +323,10 @@ const UI = (() => {
         [`Poudre${left('powder')}`, () => need('powder', 'poudre')() && (Sim.A.feed(W, s, 'powder'), Sound.plop())]]],
       ['Eau', [['Changer l\'eau…', waterModal], ['Compléter', topOffModal], ['Siphonner', () => Sim.A.siphon(W, s)],
         ...(W.tanks.length > 1 ? [['🧫 Ensemencer…', seedModal]] : [])]],
+      ...(W.inv.vial ? [['Départ', [['🧪 Fiole de départ', () => {
+        if (!confirm(`Fiole de départ (une seule par partie) : ${s.name} sera cyclé tout de suite. La verser ici ?`)) return;
+        W.inv.vial = 0; Sim.A.vial(W, s); Sound.plop(); buildActions(); toast(`🧪 ${s.name} est cyclé !`);
+      }]]]] : []),
       ['Bac', [['🪨 Décor…', decoOpen], ...(pond ? [] : [[`🧽 Raclette${(s.glass || 0) > .3 ? ' !' : ''}`, () => Sim.A.scrape(W, s)]])]],
       ...(career() ? [['Tests', [['Bandelette', () => Economy.testStrip(W, s)], [`Gouttes${left('drops')}`, () => { const e = Economy.testDrops(W, s); if (e) toast(e, 'warn'); }]]]] : []),
       ['Soins', [...(pond ? [] : [['Nettoyer filtre', () => Sim.A.cleanFilter(W, s)]]),
@@ -485,7 +489,8 @@ const UI = (() => {
     modal(`<h2>Menu</h2>
       <div class="mlist">
         <button id="mSave">💾 Sauvegarder</button>
-        ${W.mode === 'sandbox' ? '<button id="mExport">⬇ Exporter (.json)</button>' : ''}
+        ${hc ? '' : '<button id="mExport" title="Pour garder une copie ou passer sur un autre appareil (Importer sur l\'écran titre)">⬇ Exporter la sauvegarde</button>'}
+        <button id="mGuide">📖 Guide du débutant</button>
         <button id="mQuit">↩ Écran titre</button>
         <button id="mHelp">❓ Aide</button>
       </div>
@@ -499,7 +504,8 @@ const UI = (() => {
         <p><b>Hardcore</b> : temps réel 1:1, une seule sauvegarde. S'il ne reste aucune crevette, la partie est perdue.</p>
       </div>`, () => {
       $('mSave').onclick = () => { Save.store(W); toast('Partie sauvegardée.'); closeModal(); };
-      if (W.mode === 'sandbox') $('mExport').onclick = () => Save.exportFile(W);
+      if (!hc) $('mExport').onclick = () => { Save.store(W); Save.exportFile(W); };
+      $('mGuide').onclick = () => { closeModal(); Guide.open(); };
       $('mQuit').onclick = () => { Save.store(W); closeModal(); Main.stop(); showTitle(); };
       $('mHelp').onclick = () => $('mHelpBox').classList.toggle('hidden');
       $('mVol').oninput = e => Sound.setVolume(+e.target.value);
@@ -1291,7 +1297,9 @@ const UI = (() => {
         try {
           const st = JSON.parse(t);
           if (st.v !== 2 || !st.tanks) throw new Error('format');
-          st.mode = 'sandbox';
+          if (st.mode !== 'career') st.mode = 'sandbox';
+          if (Save.load(st.mode) && !confirm(`Ça remplace ta partie ${st.mode === 'career' ? 'Carrière' : 'Bac à sable'} actuelle sur cet appareil. Continuer ?`)) return;
+          e.target.value = '';
           Main.begin(Sim.relink(st));
         } catch (err) { alert('Fichier invalide ou d\'une ancienne version.'); }
       });

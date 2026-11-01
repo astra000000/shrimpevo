@@ -242,3 +242,25 @@ html, body { overscroll-behavior: none; }
   .toast { max-width: 92vw; }
   .book { grid-template-columns: 1fr !important; }
 }
+
+/* Guide du débutant (livre) */
+#guide { z-index: 40; perspective: 1400px; }
+#guide .book { display: grid; grid-template-columns: 1.1fr 1fr; grid-template-rows: 1fr auto; width: min(900px, 96vw); max-height: 92vh; background: #efe6d2; color: #2a2320; border: 3px solid #5a3e22; box-shadow: 8px 8px 0 #0008, inset 0 0 0 6px #d9cba9; transform-origin: center left; }
+#guide .book-img { background: #102226; display: flex; align-items: center; justify-content: center; padding: 14px; border-right: 4px solid #5a3e22; }
+#guide .book-img svg { width: 100%; height: auto; image-rendering: pixelated; }
+#guide .book-txt { padding: 18px 22px; overflow-y: auto; font-size: 15px; line-height: 1.5; }
+#guide .book-txt h2 { color: #7a3a1e; font-size: 18px; margin-top: 0; }
+#guide .book-txt b { color: #1f5a3a; }
+#guide .book-foot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: center; padding: 8px; border-top: 2px solid #c9b88f; font-family: var(--title); font-size: 12px; }
+#guide .book-foot #gClose { margin-left: auto; }
+#guide .book-foot span { min-width: 54px; text-align: center; }
+#guide .book.flip-next { animation: gflip .32s ease-out; }
+#guide .book.flip-prev { animation: gflipb .32s ease-out; }
+@keyframes gflip { from { transform: rotateY(-12deg); } to { transform: none; } }
+@keyframes gflipb { from { transform: rotateY(12deg); } to { transform: none; } }
+@media (max-width: 820px) {
+  #guide .book { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; height: 92vh; }
+  #guide .book-img { border-right: 0; border-bottom: 4px solid #5a3e22; padding: 8px; }
+  #guide .book-img svg { max-height: 30vh; }
+  #guide .book-txt { font-size: 14px; padding: 12px 14px; }
+}

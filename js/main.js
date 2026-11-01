@@ -101,6 +101,8 @@ const Main = (() => {
     Render.init(document.getElementById('view'), id => UI.selectShrimp(id));
     UI.bind();
     UI.showTitle();
+    document.getElementById('openGuide').onclick = e => { e.preventDefault(); Guide.open(); };
+    Guide.firstTime();
     requestAnimationFrame(loop);
   });
 

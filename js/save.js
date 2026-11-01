@@ -52,7 +52,7 @@ const Save = (() => {
     const blob = new Blob([serialize(W)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `shrimpevo-jour${Sim.calendar(W).day}.json`;
+    a.download = `shrimpevo-${W.mode === 'career' ? 'carriere' : 'bac-a-sable'}-jour${Sim.calendar(W).day}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
