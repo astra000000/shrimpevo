@@ -152,6 +152,26 @@ const Guide = (() => {
         <b>📈 Marché</b> (carrière) : vends tes souches au prix que tu veux, aux PNJ ou aux <b>🌐 autres joueurs</b>. Une souche stable et rare se vend cher.`,
     },
     {
+      t: '7 espèces, des escargots',
+      img: () => svg(`${shrimp(8, 14, 2, '#d33')}${shrimp(70, 14, 2, '#7a6a55')}${shrimp(134, 14, 2, '#c9c9c0')}<rect x="166" y="22" width="12" height="2" fill="#e33"/>
+        ${shrimp(8, 54, 2, '#e22')}${shrimp(70, 54, 3, '#6b5a40')}<rect x="118" y="66" width="22" height="2" fill="#6b5a40"/>
+        ${sprite(['.ooo.', 'ooooo', 'ooOoo', '.bbbbb'], { o: '#c98a2a', O: '#7a4a1e', b: '#8a8070' }, 30, 100, 3)}${sprite(['.ooo.', 'ooooo', 'ooOoo', '.bbbbb'], { o: '#3a2a14', O: '#e0c050', b: '#8a8070' }, 90, 100, 3)}
+        ${txt(170, 60, 'Macro', '#9fb7b9', 7)}${txt(170, 112, 'escargots', '#9fb7b9', 7)}`),
+      p: `Neocaridina, Caridina, <b>Amano</b> (mange les algues), <b>Atyaephyra</b> (froid, bassin), <b>Rhino</b> (nez rouge, en banc), <b>Halocaridina</b> (eau salée) et <b>Macrobrachium</b> (grosse, territoriale : elle chasse les autres !).<br><br>
+        Chaque espèce a un <b>volume conseillé</b>. Amano, Rhino et Macrobrachium ont des larves qui ne vivent qu'en <b>eau saumâtre</b> : pour les faire naître, mets la femelle grainée dans un bac salé 🧂.<br>
+        <b>Escargots</b> : néritine (vitres), planorbe et mélanoïde (restes), ampullaire, assassin (mange les autres escargots).`,
+    },
+    {
+      t: 'Jouer entre potes',
+      img: () => svg(`${tank(plant(30, 6) + shrimp(70, 80, 2, '#d33') + shrimp(120, 60, 2, '#2f6fd6', { flip: true }))}
+        ${txt(100, 8, '🌐', '#fff', 9)}`),
+      p: `Bouton <b>🌐 En ligne</b> :<br>
+        👀 <b>Visiter</b> : partage ton bac et visite celui des autres (un lien à envoyer).<br>
+        🎁 <b>Cadeaux</b> : envoie des crevettes, des Shrimp Coins ou du décor à un pseudo.<br>
+        🏆 <b>Concours</b> : chaque semaine un thème. Inscris ta plus belle crevette, vote pour 3 autres. Le <b>top 3</b> gagne des <b>décors exclusifs</b> introuvables en boutique.<br>
+        Et sur 📈 le marché : vends tes souches signées à ton nom.`,
+    },
+    {
       t: 'Commandes',
       img: () => svg(`
         <rect x="30" y="24" width="30" height="46" rx="0" fill="#cfe3e6"/><rect x="44" y="24" width="2" height="18" fill="#3f7f86"/><rect x="30" y="42" width="30" height="2" fill="#3f7f86"/>

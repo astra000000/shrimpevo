@@ -408,12 +408,12 @@ const UI = (() => {
           (s.plantPos || (s.plantPos = {}))[p.plant] = { x, z };
           deco.placing = null;
         } else {
-          if (career() && !((W.inv['d_' + p.k] || 0) > 0)) { toast(`Plus de ${DECOR[p.k].name} en stock : boutique, rayon Décor.`, 'warn'); return; }
-          if (career()) W.inv['d_' + p.k]--;
+          if (!(decorLeft(p.k) > 0)) { toast(DECOR[p.k].excl ? `${DECOR[p.k].name} : déjà posé (à gagner au concours).` : `Plus de ${DECOR[p.k].name} en stock : boutique, rayon Décor.`, 'warn'); return; }
+          if (career() && !DECOR[p.k].excl) W.inv['d_' + p.k]--;
           const d = { id: s.nextDecor++, k: p.k, x, z, ry: Math.random() * 6, s: 1, seed: (Math.random() * 1e6) | 0 };
           s.decor.push(d);
           deco.sel = d.id;
-          if (!career() || !(W.inv['d_' + p.k] > 0)) deco.placing = null;
+          if (!(decorLeft(p.k) > 0) || !career()) deco.placing = null;
         }
         Render.build(s); Render.decoSelect(deco.sel); renderDeco();
       },
@@ -434,28 +434,33 @@ const UI = (() => {
     if (act === 'sp') d.s = Math.min(2.2, (d.s || 1) + .15);
     if (act === 'del') {
       s.decor = s.decor.filter(o => o !== d);
-      if (career()) W.inv['d_' + d.k] = (W.inv['d_' + d.k] || 0) + 1;
+      if (career() && !DECOR[d.k].excl) W.inv['d_' + d.k] = (W.inv['d_' + d.k] || 0) + 1;
       deco.sel = null;
     }
     Render.build(s); Render.decoSelect(deco.sel); renderDeco();
+  }
+  // Stock de décor : acheté (carrière), illimité (bac à sable), ou gagné au concours (trophées liés à l'appareil)
+  function decorLeft(k) {
+    if (DECOR[k].excl) return (Online.trophies[k] || 0) - W.tanks.reduce((a, t) => a + (t.decor || []).filter(d => d.k === k).length, 0);
+    return career() ? (W.inv['d_' + k] || 0) : Infinity;
   }
   function renderDeco() {
     const s = T();
     if (!deco || !s) return;
     const sel = s.decor.find(o => o.id === deco.sel);
-    const own = k => career() ? (W.inv['d_' + k] || 0) : '∞';
+    const own = k => DECOR[k].excl ? '🏆 ' + decorLeft(k) : career() ? (W.inv['d_' + k] || 0) : '∞';
     const placeable = Object.keys(s.plants).filter(k => !PLANTS[k].floating && !['moss', 'epi'].includes(PLANTS[k].look.shape));
     const hint = deco.placing ? (deco.placing.plant ? `Clique sur le sol pour placer : ${PLANTS[deco.placing.plant].name}` : `Clique sur le sol pour poser : ${DECOR[deco.placing.k].name}`)
       : 'Clique un objet pour le choisir, glisse-le pour le déplacer. R : tourner · Suppr : retirer · Échap : terminer';
     $('decoPanel').innerHTML = `<div class="deco-row"><b>🪨 Décor — ${esc(s.name)}</b><span class="dimc">${esc(hint)}</span><button id="dClose">Terminer</button></div>
-      <div class="deco-row">${Object.entries(DECOR).map(([k, D]) => `<button data-dk="${k}" class="${deco.placing && deco.placing.k === k ? 'on' : ''}" title="${esc(D.desc)}">${esc(D.name)} <small>${own(k)}</small></button>`).join('')}</div>
+      <div class="deco-row">${Object.entries(DECOR).filter(([k, D]) => !D.excl || (Online.trophies[k] || 0) > 0).map(([k, D]) => `<button data-dk="${k}" class="${deco.placing && deco.placing.k === k ? 'on' : ''}" title="${esc(D.desc)}">${esc(D.name)} <small>${own(k)}</small></button>`).join('')}</div>
       ${sel ? `<div class="deco-row">Sélection : <b>${esc(DECOR[sel.k].name)}</b><button data-da="rl">↺</button><button data-da="rr">↻</button><button data-da="sm">−</button><button data-da="sp">+</button><button data-da="del">🗑 Retirer</button></div>` : ''}
       <div class="deco-row"><span class="dimc">Massifs :</span>${placeable.map(k => `<button data-pk="${k}" class="${deco.placing && deco.placing.plant === k ? 'on' : ''}">📍 ${esc(PLANTS[k].name)}</button>`).join('') || '<span class="dimc">aucune plante à placer</span>'}</div>`;
     const el = $('decoPanel');
     $('dClose').onclick = decoClose;
     el.querySelectorAll('[data-dk]').forEach(b => b.onclick = () => {
       const k = b.dataset.dk;
-      if (career() && !((W.inv['d_' + k] || 0) > 0)) { toast(`Achète d'abord : ${DECOR[k].name} (boutique, rayon Décor).`, 'warn'); return; }
+      if (!(decorLeft(k) > 0)) { toast(DECOR[k].excl ? `${DECOR[k].name} : tous tes exemplaires sont posés.` : `Achète d'abord : ${DECOR[k].name} (boutique, rayon Décor).`, 'warn'); return; }
       deco.placing = deco.placing && deco.placing.k === k ? null : { k }; renderDeco();
     });
     el.querySelectorAll('[data-pk]').forEach(b => b.onclick = () => { const k = b.dataset.pk; deco.placing = deco.placing && deco.placing.plant === k ? null : { plant: k }; renderDeco(); });
@@ -717,14 +722,17 @@ const UI = (() => {
     el.querySelectorAll('[data-nun]').forEach(b => b.onclick = () => netUnlist(+b.dataset.nun));
   }
   // Pseudo demandé une fois, avant la première action en ligne
+  // Pseudo unique réservé sur le serveur (annonces, cadeaux, concours)
   function withName(next) {
-    if (Online.name) return next();
-    modal(`<h2>🌐 Ton pseudo</h2><p style="font-size:14px">Il apparaîtra sur tes annonces et dans le bestiaire de tes acheteurs.</p>
-      <div class="row"><input id="pName" maxlength="24" placeholder="ex. CrevetteMaster" style="flex:1;background:#0f1e22;border:2px solid var(--line)"><button class="big" id="pGo">OK</button></div>`, () => {
-      $('pGo').onclick = () => {
+    if (Online.registered) return next();
+    modal(`<h2>🌐 Ton pseudo</h2><p style="font-size:14px">Il apparaîtra sur tes annonces, tes souches, le concours… et c'est avec lui que tes potes t'envoient des cadeaux.</p>
+      <div class="row"><input id="pName" maxlength="24" placeholder="ex. CrevetteMaster" value="${esc(Online.name || '')}" style="flex:1;background:#0f1e22;border:2px solid var(--line)"><button class="big" id="pGo">OK</button></div>`, () => {
+      $('pGo').onclick = async () => {
         const n = $('pName').value.trim();
         if (n.length < 2) return toast('2 caractères minimum.', 'warn');
-        Online.setName(n); closeModal(); next();
+        $('pGo').disabled = true;
+        try { await Online.register(n); closeModal(); next(); }
+        catch (e) { toast(e.message, 'warn'); $('pGo').disabled = false; }
       };
     });
   }
@@ -1101,7 +1109,7 @@ const UI = (() => {
         <div><b>#${sh.id}</b> ${sh.sex === 'F' ? '♀' : '♂'}<br>${esc(Gen.phenotype(g))}<br><small class="dimc">${GENERA[sh.genus].name}${sh.origin ? ' · ' + esc(sh.origin) : ''}</small>
         ${sh.strain ? `<br><span class="link" id="openStrain">📖 ${esc(strainName(sh.strain))}</span>${(e => e && e.source !== 'mine' && e.author && e.author !== 'Animalerie' ? ` <small class="dimc">✍ ${esc(e.author)}</small>` : '')(Economy.entryOf(W, sh.strain))}` : ''}</div></div>
       <div class="row"><button id="followBtn" class="${Render.follow ? 'on' : ''}">🎥 Suivre</button>
-        <button id="toNet">${net.has(sh.id) ? '✓ Dans l\'épuisette' : '🥅 Épuisette'}</button><button id="closeSel">✕</button></div>
+        <button id="toNet">${net.has(sh.id) ? '✓ Dans l\'épuisette' : '🥅 Épuisette'}</button>${Online.enabled() ? '<button id="toContest" title="Inscrire au concours de la semaine">🏆</button>' : ''}<button id="closeSel">✕</button></div>
       <div class="stat-grid" style="font-size:13px">
         <span>Génération</span><b>${sh.gen}</b>
         <span>Âge</span><b>${Math.floor(sh.age)} j ${mature ? '(adulte)' : '(' + stageOf(sh) + ')'}</b>
@@ -1130,6 +1138,7 @@ const UI = (() => {
     try { Render.portrait($('portrait'), sh); } catch (e) { }
     $('followBtn').onclick = () => { Render.select(sh.id, !Render.follow); renderSheet(); };
     $('toNet').onclick = () => { net.has(sh.id) ? net.delete(sh.id) : net.add(sh.id); renderSheet(); };
+    if ($('toContest')) $('toContest').onclick = () => Social.open('contest');
     $('closeSel').onclick = () => { selected = null; Render.select(null); renderSheet(); };
     if ($('openStrain')) $('openStrain').onclick = () => bookModal(sh.strain);
     el.querySelectorAll('.link[data-id]').forEach(l => l.onclick = () => selectShrimp(+l.dataset.id));
@@ -1352,6 +1361,7 @@ const UI = (() => {
     $('noTankShop').onclick = () => shopModal('Bacs');
     $('btnMarket').onclick = marketModal;
     $('btnBook').onclick = () => bookModal();
+    $('btnOnline').onclick = () => Social.open();
     $('btnBags').onclick = bagsModal;
     const side = c => { const on = !document.body.classList.contains(c); document.body.classList.remove('m-left', 'm-right'); if (on) document.body.classList.add(c); };
     $('mLeft').onclick = () => side('m-left');
@@ -1389,9 +1399,32 @@ const UI = (() => {
     });
   }
 
+  // Visite du bac d'un autre joueur : on affiche son bac (lecture seule) à la place du nôtre
+  let visiting = null;
+  function visit(s, who) {
+    visiting = s;
+    document.body.classList.add('visiting');
+    $('visitBar').innerHTML = `👀 Bac de <b>${esc(who)}</b> — ${esc(s.name)} <small class="dimc">(${s.cfg.volume} L · ${s.shrimp.length} crevettes)</small> <button id="visitEnd">✕ Revenir</button>`;
+    $('visitBar').classList.remove('hidden');
+    $('visitEnd').onclick = endVisit;
+    $('title').classList.add('hidden');
+    closeModal();
+    selected = null; Render.select(null);
+    Render.build(s);
+  }
+  function endVisit() {
+    if (!visiting) return;
+    visiting = null;
+    document.body.classList.remove('visiting');
+    $('visitBar').classList.add('hidden');
+    if (W) Render.build(T()); else { Render.build(null); showTitle(); }
+  }
   return {
     bind, showTitle, start, refreshAll, toast, setEffective, selectShrimp, setSpeed, bagsModal,
-    get world() { return W; }, set world(v) { W = v; }, get tank() { return T(); },
+    get world() { return W; }, set world(v) { W = v; }, get tank() { return visiting || T(); },
     get speed() { return speed; },
+    // pour js/social.js
+    modal, closeModal, esc, withName, buildActions, money, moneyTxt, visit, endVisit,
+    get visiting() { return visiting; }, get selected() { return selected; }, get net() { return net; },
   };
 })();

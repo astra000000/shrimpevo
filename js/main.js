@@ -55,9 +55,11 @@ const Main = (() => {
 
   function loop(now) {
     requestAnimationFrame(loop);
-    if (!running || !W) return;
     const dtR = Math.min(.25, (now - last) / 1000);
     last = now;
+    // visite d'un bac depuis l'écran titre (lien partagé) : on affiche sans partie en cours
+    if ((!running || !W) && UI.visiting) { Render.frame(UI.visiting, dtR); return; }
+    if (!running || !W) return;
     const rate = REAL_RATE[W.mode];
     // temps réel : horloge murale (un onglet en arrière-plan ne perd pas de temps, le retard est rattrapé)
     if (rate && W.realLast == null) W.realLast = Date.now();
@@ -81,6 +83,7 @@ const Main = (() => {
     Render.frame(UI.tank, dtR);
     Sound.update(UI.tank, Render.cam.dist);
     UI.refreshAll(false);
+    Social.poll();
     for (const a of Achievements.check(W)) {
       UI.toast(`🏆 Succès débloqué : ${a.ic} ${a.name}`, 'mut');
       Sound.coin();
@@ -107,7 +110,7 @@ const Main = (() => {
     UI.bind();
     UI.showTitle();
     document.getElementById('openGuide').onclick = e => { e.preventDefault(); Guide.open(); };
-    Guide.firstTime();
+    if (new URLSearchParams(location.search).get('visit')) Social.fromUrl(); else Guide.firstTime();
     requestAnimationFrame(loop);
   });
 

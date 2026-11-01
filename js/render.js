@@ -1169,6 +1169,53 @@ const Render = (() => {
         let g = new THREE.CylinderGeometry(r * .5, r * .5, r * 2.4, 12, 1, true);
         g.rotateZ(Math.PI / 2); g.translate(0, r * .3, 0);
         add(paint(g, D.color));
+      } else if (D.kind === 'trophy') {
+        // coupe : socle, pied, coupe, deux anses
+        const part = (g, x, y, z) => { g.translate(x, y, z); add(paint(g, D.color, (px, py, pz, c) => py > r * 1.9 && py < r * 2.1 ? [c[0] * 1.2, c[1] * 1.2, c[2] * 1.1] : c)); };
+        part(new THREE.BoxGeometry(r * 1.2, r * .35, r * 1.2), 0, r * .18, 0);
+        part(new THREE.CylinderGeometry(r * .15, r * .25, r * .9, 8), 0, r * .8, 0);
+        part(new THREE.CylinderGeometry(r * .7, r * .2, r * 1.1, 10), 0, r * 1.8, 0);
+        part(new THREE.TorusGeometry(r * .3, r * .07, 4, 8), r * .75, r * 1.9, 0);
+        part(new THREE.TorusGeometry(r * .3, r * .07, 4, 8), -r * .75, r * 1.9, 0);
+        world.bumps.push({ x, z, r: r * .6, y0, top: y0 + r * .35 });
+        anchors.push([0, r * 2.4, 0, r * .6]);
+      } else if (D.kind === 'chest') {
+        // coffre au trésor entrouvert, pièces dorées
+        let g = new THREE.BoxGeometry(r * 2, r * 1.1, r * 1.3); g.translate(0, r * .55, 0);
+        add(paint(g, D.color, (px, py, pz, c) => Math.abs(px) > r * .85 || Math.abs(py - r * .55) < r * .08 ? [.75, .6, .2] : c));
+        let lid = new THREE.CylinderGeometry(r * .65, r * .65, r * 2, 8, 1, false, 0, Math.PI); lid.rotateZ(Math.PI / 2); lid.rotateX(-.5); lid.translate(0, r * 1.2, -r * .25);
+        add(paint(lid, D.color));
+        for (let i = 0; i < 6; i++) { const c = new THREE.CylinderGeometry(r * .15, r * .15, r * .05, 8); c.translate((R() - .5) * r * 1.4, r * 1.12, (R() - .5) * r * .8); add(paint(c, [1, .82, .25])); }
+        world.bumps.push({ x, z, r: r * .9, y0, top: y0 + r * 1.1 });
+        anchors.push([0, r * 1.2, 0, r]);
+      } else if (D.kind === 'statue') {
+        // crevette dorée sur un socle (voxel du jeu, en or)
+        let b = new THREE.BoxGeometry(r * 1.4, r * .6, r * 1); b.translate(0, r * .3, 0);
+        add(paint(b, [.45, .42, .4]));
+        const sh = { genus: 'neo', g: Gen.express(Gen.strainDNA('neo_cherry', 0), 'neo'), id: d.id };
+        let vg = Voxel.build({ g: sh.g, seed: 3, express: 1, sex: 'F', antenna: 1, res: 32 });
+        vg = vg.clone(); vg.deleteAttribute('aAnim'); vg.scale(r * 1.6, r * 1.6, r * 1.6); vg.translate(0, r * .95, 0);
+        const C = vg.attributes.color;
+        for (let i = 0; i < C.count; i++) { const l = .7 + .3 * C.getX(i); C.setXYZW(i, 1 * l, .78 * l, .25 * l, 1); }
+        const m = new THREE.Mesh(vg, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x332200 })); m.userData.decorId = d.id; grp.add(m);
+        world.bumps.push({ x, z, r: r * .7, y0, top: y0 + r * .6 });
+        anchors.push([0, r * 1.5, 0, r * .6]);
+      } else if (D.kind === 'arch') {
+        // arche de corail : demi-tore bosselé, rose
+        let g = new THREE.TorusGeometry(r * 1.4, r * .35, 6, 12, Math.PI);
+        const p = g.attributes.position;
+        for (let i = 0; i < p.count; i++) { const f = .85 + hash3(Math.round(p.getX(i) * 9), Math.round(p.getY(i) * 9), Math.round(p.getZ(i) * 9)) * .3; p.setXYZ(i, p.getX(i) * f, p.getY(i) * f, p.getZ(i) * f); }
+        add(paint(g, D.color, (px, py, pz, c) => hash3(px * 4, py * 4, pz * 4) > .75 ? [1, .75, .65] : c));
+        anchors.push([0, r * 1.5, 0, r * .6], [r * 1.2, r * .8, 0, r * .4], [-r * 1.2, r * .8, 0, r * .4]);
+      } else if (D.kind === 'shell') {
+        // coquillage : cône en spirale nacré
+        let g = new THREE.ConeGeometry(r * .9, r * 2.2, 10, 6);
+        const p = g.attributes.position;
+        for (let i = 0; i < p.count; i++) { const y = p.getY(i), a = (y / (r * 2.2) + .5) * 6; p.setX(i, p.getX(i) + Math.cos(a) * r * .12); p.setZ(i, p.getZ(i) + Math.sin(a) * r * .12); }
+        g.rotateZ(Math.PI / 2.4); g.translate(0, r * .6, 0);
+        add(paint(g, D.color, (px, py, pz, c) => Math.sin(px * 3 / r) > .6 ? [.95, .7, .6] : c));
+        world.bumps.push({ x, z, r: r * .8, y0, top: y0 + r });
+        anchors.push([0, r * 1.1, 0, r * .7]);
       }
       grp.updateMatrixWorld(true);
       const v = new THREE.Vector3();

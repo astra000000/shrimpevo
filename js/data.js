@@ -262,7 +262,7 @@ const DECOR = {
   trophy_gold:   { name: 'Trophée d\'or', excl: true, kind: 'trophy', color: [1, .78, .2], surface: .05, desc: '1re place du concours de la semaine.' },
   trophy_silver: { name: 'Trophée d\'argent', excl: true, kind: 'trophy', color: [.8, .82, .86], surface: .05, desc: '2e place du concours de la semaine.' },
   trophy_bronze: { name: 'Trophée de bronze', excl: true, kind: 'trophy', color: [.75, .45, .22], surface: .05, desc: '3e place du concours de la semaine.' },
-  chest:  { name: 'Coffre au trésor', excl: true, kind: 'chest', color: [.45, .28, .14], surface: .1, cover: .1, desc: 'Récompense du concours : s\'ouvre et lâche des bulles.' },
+  chest:  { name: 'Coffre au trésor', excl: true, kind: 'chest', color: [.45, .28, .14], surface: .1, cover: .1, desc: 'Récompense du concours : un coffre entrouvert plein de pièces d\'or.' },
   statue: { name: 'Statue de crevette dorée', excl: true, kind: 'statue', color: [1, .78, .25], surface: .08, desc: 'Récompense du concours.' },
   arch:   { name: 'Arche de corail', excl: true, kind: 'arch', color: [.9, .45, .4], surface: .3, calc: .1, cover: .1, desc: 'Récompense du concours : abri et bactéries.' },
   shell:  { name: 'Coquillage géant', excl: true, kind: 'shell', color: [.95, .85, .75], surface: .1, cover: .12, desc: 'Récompense du concours : une cachette nacrée.' },
