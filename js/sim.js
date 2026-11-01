@@ -85,10 +85,10 @@ const Sim = (() => {
     const s = {
       id, name: cfg.name || `${cfg.env === 'pond' ? 'Bassin' : 'Bac'} ${id}`, env: cfg.env, seed: (rnd() * 1e9) | 0,
       cfg: { volume: cfg.volume, substrate: cfg.substrate, water: cfg.water },
-      w: { temp: 20, gh: src.gh, kh: src.kh, ph: 7, tan: 0, no2: 0, no3: src.no3, o2: 8, co2: 3, tannin: sub.earth ? .2 : 0, level: 1 },
+      w: { temp: 20, gh: src.gh, kh: src.kh, ph: 7, tan: 0, no2: 0, no3: src.no3, o2: 8, co2: 3, tannin: sub.earth ? .2 : sub.tannin || 0, level: 1 },
       pools: { food: 0, veg: 0, powder: 0, det: 0, biofilm: 0 },
       algae: .03, bactA: 1e-4, bactB: 1e-4,
-      soilCap: sub.soil ? 1 : 0, soilLeach: sub.soil ? 1 : sub.earth ? .5 : 0,
+      soilCap: sub.soil ? 1 : 0, soilLeach: sub.soil ? 1 : sub.earth ? .5 : sub.leach || 0,
       plants: {},
       eq: Object.assign({ filter: 'none', clog: 0, heater: false, target: 24, co2: false, light: 8, intensity: .6, air: false, ato: false, shade: false, ledPro: false, probePh: false, probeAll: false }, cfg.eq || {}),
       heaterStuck: false, disease: 0,
@@ -259,7 +259,9 @@ const Sim = (() => {
       let cv = s.plants[key];
       const ok = w.temp >= pd.tMin && w.temp <= pd.tMax ? 1 : 0;
       const lt = pd.floating ? light : lightBelow;
-      const grow = pd.r / 24 * lt * nutr * co2b * ok * cv * (1 - cv);
+      const dem = pd.dem || 0;
+      const needs = 1 - dem + dem * clamp((w.co2 - 5) / 20, 0, 1) * Math.min(1, lt / .7);
+      const grow = pd.r / 24 * lt * nutr * co2b * needs * ok * cv * (1 - cv);
       cv = clamp(cv + (grow - (ok ? 0 : .004 * cv)) * dt, .01, 1);
       s.plants[key] = cv;
       upN += cv * pd.up * lt * ok * co2b;
@@ -306,6 +308,11 @@ const Sim = (() => {
       w.tan += .025 * s.soilLeach * dt * (sub.earth ? .5 : 1);
       if (sub.earth) w.tannin += (.25 - w.tannin) * .002 * dt;
       s.soilLeach *= Math.exp(-dt / (24 * 18));
+    }
+    if (sub.tannin) w.tannin += (sub.tannin - w.tannin) * .002 * dt;          // feuilles de catappa
+    if (sub.calc) {                                                              // calcaire : remonte GH/KH
+      w.kh += Math.max(0, 7 - w.kh) * .0015 * sub.calc * dt;
+      w.gh += Math.max(0, 12 - w.gh) * .0015 * sub.calc * dt;
     }
     w.tannin *= Math.exp(-.0006 * dt);
 
@@ -370,7 +377,7 @@ const Sim = (() => {
       const sat = o2Sat(w.temp);
       const eo = sat + (o2prod - o2cons - plantResp) / ko;
       w.o2 = clamp(eo + (w.o2 - eo) * Math.exp(-ko * dt), 0, sat * 1.6);
-      const acid = (sub.soil ? .3 * s.soilCap : 0) + .7 * w.tannin + (sub.earth ? .1 : 0);
+      const acid = (sub.soil ? .3 * s.soilCap : 0) + .7 * w.tannin + (sub.earth ? .1 : 0) + (sub.acid || 0);
       const phEq = clamp(7 + Math.log10(3 * Math.max(w.kh, .3) / Math.max(w.co2, .5)) - acid, 4.8, 8.8);
       w.ph += (phEq - w.ph) * (1 - Math.exp(-.3 * dt));
     }
@@ -706,6 +713,7 @@ const Sim = (() => {
   const A = {
     feed(W, s, type) {
       const v = V0(s);
+      s._fed = { type, t: W.t };   // pour le rendu : morceau de nourriture visible
       if (type === 'granules') { s.pools.food += v * 1; log(W, 'Nourriture : granulés.', 'info', false, s); }
       if (type === 'veg') { s.pools.veg += v * 2; log(W, 'Nourriture : légumes blanchis.', 'info', false, s); }
       if (type === 'powder') { s.pools.powder += v * .4; log(W, 'Nourriture : poudre pour bébés.', 'info', false, s); }
@@ -764,6 +772,54 @@ const Sim = (() => {
       log(W, 'Bactéries ajoutées : le cycle va beaucoup plus vite.', 'info', false, s);
     },
   };
+  // ---------- Cycle de l'azote ----------
+  // Colonies (fraction de la capacité) : un bac neuf part de ~0,1 %, il tient la charge vers 5 %.
+  // Ammoniac → nitrites d'abord (nitrosomonas), puis nitrites → nitrates (nitrobacter, en retard).
+  const CYCLED = .05, START = 1e-3;
+  function cycleInfo(s) {
+    const Kb = bactCap(s), a = s.bactA / Kb, b = s.bactB / Kb, w = s.w;
+    const lg = r => clamp(Math.log(Math.max(r, START) / START) / Math.log(CYCLED / START), 0, 1);
+    const pA = lg(a), pB = lg(b);
+    const clean = w.no2 < .2 && w.tan < .2;
+    const cycled = a >= CYCLED && b >= CYCLED && clean;
+    const fuel = w.tan + s.pools.food + s.pools.veg + s.pools.det / 10 > .05 || s.shrimp.length > 0;
+    // estimation (taux calés sur la simulation, bac nourri chaque jour)
+    const mT = clamp(1 + .07 * (w.temp - 22), .15, 2);
+    const rA = .03 * mT * Math.max(.4, w.tan / (w.tan + .2)) - .0015, rB = .022 * mT * .55 - .0015;
+    const tA = a >= CYCLED ? 0 : Math.log(CYCLED / a) / rA;
+    const tWait = a >= .02 ? 0 : Math.log(.02 / a) / rA;
+    const tB = b >= CYCLED ? 0 : Math.log(CYCLED / Math.max(b, .002)) / rB;
+    const hours = cycled ? 0 : !fuel || rA <= 0 ? Infinity : Math.max(tA, tWait + tB) + (clean ? 0 : 36 * Math.max(1, Math.log2(Math.max(w.no2, w.tan) / .2)));
+    const pct = cycled ? 1 : Math.min(.97, (pA + pB) / 2);
+    const phase = cycled ? 'Cyclé' : a < CYCLED * .5 ? 'Phase 1 : ammoniac' : b < CYCLED ? 'Phase 2 : nitrites' : 'Fin : les nitrites redescendent';
+    return { pct, a: pA, b: pB, days: hours / 24, phase, fuel };
+  }
+  // Ensemencer un bac avec un bac mûr. kind : water (seau d'eau), sponge (presser la masse filtrante), mulm (substrat/mousse)
+  const SEED = {
+    water: { gain: .0015, take: 0, hitch: .02, label: "un seau d'eau" },
+    sponge: { gain: .06, take: .08, hitch: .1, label: 'le jus de la masse filtrante' },
+    mulm: { gain: .035, take: .04, hitch: .3, label: 'du substrat et de la mousse' },
+  };
+  function seedFrom(W, src, dst, kind) {
+    const k = SEED[kind];
+    if (kind === 'sponge' && src.env === 'aquarium' && src.eq.filter === 'none') return "Le bac source n'a pas de filtre.";
+    const KbS = bactCap(src), KbD = bactCap(dst);
+    const mat = Math.min(1, Math.min(src.bactA / KbS, src.bactB / KbS) / CYCLED);
+    if (mat < .2) return `${src.name} n'est pas assez mûr pour ensemencer.`;
+    const cap = KbD * CYCLED * 1.2 * mat;
+    dst.bactA = Math.max(dst.bactA, Math.min(cap, dst.bactA + KbD * k.gain * mat));
+    dst.bactB = Math.max(dst.bactB, Math.min(cap, dst.bactB + KbD * k.gain * mat));
+    src.bactA *= 1 - k.take; src.bactB *= 1 - k.take;
+    if (kind === 'water') mixIn(dst, waterOf(src), Math.min(.2, src.cfg.volume * .1 / dst.cfg.volume), src.w.temp);
+    dst.pools.biofilm += Math.min(src.pools.biofilm * .05, dst.cfg.volume * .3);
+    // les indésirables voyagent aussi
+    let hitch = '';
+    if (src.pred.plan >= 1 && rnd() < .5 + k.hitch) { dst.pred.plan += Math.max(1, src.pred.plan * k.hitch); hitch += ' Des planaires ont peut-être suivi…'; }
+    if (src.pred.hydra >= 1 && rnd() < .5 + k.hitch) { dst.pred.hydra += Math.max(1, src.pred.hydra * k.hitch); hitch += ' Des hydres ont peut-être suivi…'; }
+    log(W, `🧫 ${dst.name} ensemencé avec ${k.label} de ${src.name}.${hitch}`, hitch ? 'warn' : 'info', true, dst);
+    return null;
+  }
+
   function topOff(W, s, srcKey, silent) {
     const w = s.w, src = WATERS[srcKey];
     const p = 1 - w.level;
@@ -790,6 +846,6 @@ const Sim = (() => {
 
   return {
     newWorld, newTank, step, advance, calendar, popStats, isMature, express, nh3Of, A, CAP, BABY, bactCap, log,
-    makeShrimp, storeShrimp, startTransfer, netFromTank, addBag, bagToTank, tankById, relink, roomTemp, waterOf, DRIP_HOURS,
+    cycleInfo, seedFrom, makeShrimp, storeShrimp, startTransfer, netFromTank, addBag, bagToTank, tankById, relink, roomTemp, waterOf, DRIP_HOURS,
   };
 })();

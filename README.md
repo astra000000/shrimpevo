@@ -17,7 +17,7 @@ Les sauvegardes sont dans le navigateur (localStorage) : même navigateur = mêm
 ## Modes
 
 - **Carrière** : temps réel ×24 (1 h réelle = 1 jour), le monde vit jeu fermé. Départ avec
-  400 🐚 seulement : boutique (bacs, matériel, plantes, souches), paramètres de l'eau cachés
+  400 Shrimp Coin (SC) seulement : boutique (bacs, matériel, plantes, souches), paramètres de l'eau cachés
   (bandelettes gratuites, gouttes, sondes), marché avec éleveurs simulés et ventes à prix libre,
   bestiaire des souches.
 - **Bac à sable** : tout gratuit et visible, vitesse réglable, plusieurs bacs, export/import.
@@ -34,6 +34,14 @@ Les sauvegardes sont dans le navigateur (localStorage) : même navigateur = mêm
 - Mutations rares, souvent cachées (porteurs) ; les crevettes d'animalerie portent parfois des gènes cachés.
 - Sélection : eau inadaptée (stress, mues ratées, pas de ponte), prédateurs qui repèrent les
   juvéniles visibles, coût du généralisme sur la fertilité.
+
+## Bac
+
+- 14 sols (sable de Loire, quartz, pouzzolane, akadama, soil actif/neutre, corallien qui durcit l'eau, catappa et ses tanins…).
+- 40 plantes en 7 familles (mousses, tiges, rubans, rosettes, épiphytes, gazons, flottantes) ; les exigeantes poussent à peine sans CO2.
+- Cycle de l'azote affiché (phase, avancement, temps restant estimé) ; ensemencement depuis un bac mûr
+  (seau d'eau, jus du filtre, substrat + mousse — ce dernier peut amener planaires et hydres).
+- Nourriture visible : les crevettes viennent la manger.
 
 ## Plusieurs bacs
 

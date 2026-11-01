@@ -74,7 +74,7 @@ const POLY = [
 // Teinte selon les pigments homozygotes présents (r rouge, y jaune, b bleu, g vert)
 const PIGMENT_HUE = { r: 356, y: 52, b: 222, g: 125, ry: 24, rb: 272, yb: 155, rg: 40, yg: 88, bg: 185 };
 
-// Souches d'animalerie : génotype de base + cibles polygéniques. price en 🐚 par individu.
+// Souches d'animalerie : génotype de base + cibles polygéniques. price en Shrimp Coin par individu.
 const VARIETIES = {
   neo_wild:   { genus: 'neo', name: 'Sauvage',       loci: {},                    poly: { dens: .4 },  price: 1 },
   neo_cherry: { genus: 'neo', name: 'Red Cherry',    loci: { R: 'rr' },           poly: { dens: .5 },  price: 3 },
@@ -91,22 +91,89 @@ const VARIETIES = {
   car_bolt:   { genus: 'car', name: 'Blue Bolt',     loci: { B: 'bb', S: 'SS' },  poly: { dens: .93, dark: .05, bandW: .6 }, price: 25 },
 };
 
-// r : croissance/jour, up : absorption azote (mg N/L/h à couverture 1), cover : refuge pour juvéniles
+// Plantes. r : croissance/jour, up : absorption azote (mg N/L/h à couverture 1), cover : refuge pour juvéniles,
+// dem : exigence (0 facile … 1 : pousse à peine sans CO2), price en Shrimp Coin, look : rendu 3D.
+const PLANT_CATS = ['Mousses', 'Tiges', 'Rubans', 'Rosettes', 'Épiphytes', 'Gazons', 'Flottantes'];
 const PLANTS = {
-  moss:    { name: 'Mousse de Java',   r: .06, up: .006, cover: 1.0, o2: .3,  tMin: 4,  tMax: 30, biofilm: 1.5 },
-  hygro:   { name: 'Hygrophila',       r: .22, up: .02,  cover: .4,  o2: 1,   tMin: 14, tMax: 30, biofilm: .5 },
-  vallis:  { name: 'Vallisnérie',      r: .14, up: .012, cover: .5,  o2: .7,  tMin: 10, tMax: 31, biofilm: .6 },
-  anubias: { name: 'Anubias',          r: .03, up: .004, cover: .4,  o2: .2,  tMin: 18, tMax: 30, biofilm: .8 },
-  egeria:  { name: 'Élodée dense',     r: .2,  up: .02,  cover: .6,  o2: 1.2, tMin: 3,  tMax: 27, biofilm: .6 },
-  lemna:   { name: "Lentilles d'eau",  r: .35, up: .025, cover: .2,  o2: .2,  tMin: 4,  tMax: 33, biofilm: .3, floating: true },
+  // Mousses
+  moss:      { cat: 'Mousses', name: 'Mousse de Java', price: 8, r: .06, up: .006, cover: 1.0, o2: .3, tMin: 4, tMax: 30, biofilm: 1.5, look: { shape: 'moss', c: [.16, .3, .1] } },
+  christmas: { cat: 'Mousses', name: 'Mousse Christmas', price: 10, r: .05, up: .005, cover: 1.0, o2: .3, tMin: 15, tMax: 28, biofilm: 1.6, look: { shape: 'moss', c: [.12, .36, .1], s: .8 } },
+  weeping:   { cat: 'Mousses', name: 'Mousse pleureuse', price: 11, r: .05, up: .005, cover: .9, o2: .3, tMin: 12, tMax: 28, biofilm: 1.5, look: { shape: 'moss', c: [.18, .38, .12], s: 1.15 } },
+  flame:     { cat: 'Mousses', name: 'Mousse Flame', price: 12, r: .045, up: .005, cover: .7, o2: .3, tMin: 15, tMax: 28, biofilm: 1.4, look: { shape: 'stem', c: [.1, .28, .08], ny: 3, len: .6, wid: .3, h: [.1, .12], nStem: 18 } },
+  subwass:   { cat: 'Mousses', name: 'Subwassertang', price: 9, r: .05, up: .005, cover: .9, o2: .3, tMin: 15, tMax: 30, biofilm: 1.4, look: { shape: 'moss', c: [.22, .4, .12], s: 1.3 } },
+  marimo:    { cat: 'Mousses', name: 'Boule de Marimo', price: 6, r: .01, up: .002, cover: .1, o2: .2, tMin: 2, tMax: 28, biofilm: 1.2, look: { shape: 'ball', c: [.12, .32, .1], n: 5, size: 1.6 } },
+  // Plantes à tiges
+  hygro:     { cat: 'Tiges', name: 'Hygrophila polysperma', price: 6, r: .22, up: .02, cover: .4, o2: 1, tMin: 14, tMax: 30, biofilm: .5, look: { shape: 'stem', c: [.3, .55, .17], ny: 2, len: 1.8, wid: .45 } },
+  egeria:    { cat: 'Tiges', name: 'Élodée dense', price: 4, r: .2, up: .02, cover: .6, o2: 1.2, tMin: 3, tMax: 27, biofilm: .6, look: { shape: 'stem', c: [.18, .5, .12], ny: 4, len: 1.1, wid: .18 } },
+  cerato:    { cat: 'Tiges', name: 'Cornifle (Ceratophyllum)', price: 3, r: .25, up: .025, cover: .7, o2: 1.2, tMin: 2, tMax: 30, biofilm: .5, look: { shape: 'stem', c: [.12, .38, .1], ny: 6, len: 1.2, wid: .1, h: [.6, .4] } },
+  limno:     { cat: 'Tiges', name: 'Limnophila sessiliflora', price: 5, r: .22, up: .02, cover: .6, o2: 1, tMin: 16, tMax: 30, biofilm: .5, look: { shape: 'stem', c: [.35, .62, .2], ny: 5, len: 1.3, wid: .12 } },
+  cabomba:   { cat: 'Tiges', name: 'Cabomba caroliniana', price: 6, r: .18, up: .015, cover: .5, o2: .9, tMin: 18, tMax: 28, biofilm: .5, dem: .3, look: { shape: 'stem', c: [.3, .6, .2], ny: 6, len: 1.4, wid: .1 } },
+  bacopa:    { cat: 'Tiges', name: 'Bacopa caroliniana', price: 6, r: .1, up: .01, cover: .3, o2: .7, tMin: 15, tMax: 30, biofilm: .4, look: { shape: 'stem', c: [.35, .55, .2], ny: 2, len: 1, wid: .55 } },
+  rotala:    { cat: 'Tiges', name: 'Rotala rotundifolia', price: 7, r: .2, up: .018, cover: .5, o2: .9, tMin: 18, tMax: 30, biofilm: .5, dem: .4, look: { shape: 'stem', c: [.35, .55, .2], c2: [.85, .4, .3], ny: 4, len: .8, wid: .2 } },
+  ludwigia:  { cat: 'Tiges', name: 'Ludwigia repens Rubin', price: 7, r: .15, up: .015, cover: .4, o2: .8, tMin: 15, tMax: 30, biofilm: .4, dem: .4, look: { shape: 'stem', c: [.45, .3, .2], c2: [.75, .18, .15], ny: 2, len: 1.3, wid: .5 } },
+  alter:     { cat: 'Tiges', name: 'Alternanthera reineckii', price: 9, r: .08, up: .01, cover: .3, o2: .6, tMin: 20, tMax: 30, biofilm: .4, dem: .7, look: { shape: 'stem', c: [.55, .2, .25], c2: [.85, .25, .4], ny: 2, len: 1.5, wid: .45 } },
+  // Rubans
+  vallis:    { cat: 'Rubans', name: 'Vallisnérie spiralis', price: 6, r: .14, up: .012, cover: .5, o2: .7, tMin: 10, tMax: 31, biofilm: .6, look: { shape: 'ribbon', c: [.3, .6, .2], n: 70, w: .5, h: [.6, .4], wave: .25 } },
+  vgiant:    { cat: 'Rubans', name: 'Vallisnérie géante', price: 9, r: .15, up: .015, cover: .5, o2: .8, tMin: 15, tMax: 30, biofilm: .6, look: { shape: 'ribbon', c: [.25, .52, .18], n: 36, w: 1, h: [.9, .3], wave: .3 } },
+  sagit:     { cat: 'Rubans', name: 'Sagittaria subulata', price: 6, r: .1, up: .01, cover: .5, o2: .5, tMin: 15, tMax: 30, biofilm: .6, look: { shape: 'ribbon', c: [.32, .62, .22], n: 90, w: .35, h: [.12, .1], wave: .1, front: true } },
+  eleo:      { cat: 'Rubans', name: 'Éléocharis (herbe à aiguilles)', price: 7, r: .1, up: .008, cover: .5, o2: .4, tMin: 15, tMax: 30, biofilm: .7, dem: .3, look: { shape: 'ribbon', c: [.4, .7, .25], n: 160, w: .12, h: [.08, .1], wave: .05, front: true } },
+  apono:     { cat: 'Rubans', name: 'Aponogeton crispus', price: 8, r: .1, up: .01, cover: .3, o2: .5, tMin: 20, tMax: 30, biofilm: .4, look: { shape: 'ribbon', c: [.4, .55, .22], n: 18, w: .9, h: [.5, .3], wave: .6 } },
+  // Rosettes
+  crypto:    { cat: 'Rosettes', name: 'Cryptocoryne wendtii', price: 7, r: .05, up: .008, cover: .5, o2: .4, tMin: 18, tMax: 30, biofilm: .7, look: { shape: 'rosette', c: [.35, .33, .15], n: 8, k: 7, len: 2.6, wid: .9, tilt: .7 } },
+  parva:     { cat: 'Rosettes', name: 'Cryptocoryne parva', price: 6, r: .04, up: .005, cover: .4, o2: .3, tMin: 18, tMax: 30, biofilm: .6, look: { shape: 'rosette', c: [.2, .45, .15], n: 14, k: 6, len: 1.4, wid: .25, tilt: 1.1, front: true } },
+  sword:     { cat: 'Rosettes', name: 'Échinodorus (Amazone)', price: 10, r: .07, up: .015, cover: .5, o2: .7, tMin: 20, tMax: 30, biofilm: .6, look: { shape: 'rosette', c: [.25, .55, .18], n: 3, k: 12, len: 7, wid: 1.4, tilt: 1 } },
+  lotus:     { cat: 'Rosettes', name: 'Nymphaea lotus rouge', price: 9, r: .08, up: .012, cover: .4, o2: .5, tMin: 20, tMax: 30, biofilm: .5, look: { shape: 'rosette', c: [.6, .2, .2], n: 3, k: 7, len: 3.5, wid: 2, tilt: .35 } },
+  // Épiphytes (sur roches et racines)
+  anubias:   { cat: 'Épiphytes', name: 'Anubias nana', price: 12, r: .03, up: .004, cover: .4, o2: .2, tMin: 18, tMax: 30, biofilm: .8, look: { shape: 'epi', c: [.08, .25, .08], n: 24, sx: 2.2, sz: 1.2, rz: .5 } },
+  fern:      { cat: 'Épiphytes', name: 'Fougère de Java', price: 8, r: .05, up: .006, cover: .5, o2: .3, tMin: 15, tMax: 30, biofilm: .8, look: { shape: 'epi', c: [.18, .38, .14], n: 30, sx: 3.2, sz: .5, rz: 1 } },
+  buce:      { cat: 'Épiphytes', name: 'Bucephalandra', price: 14, r: .02, up: .003, cover: .3, o2: .15, tMin: 20, tMax: 29, biofilm: .8, look: { shape: 'epi', c: [.24, .17, .26], n: 20, sx: 1.2, sz: .7, rz: .4 } },
+  bolbitis:  { cat: 'Épiphytes', name: 'Bolbitis heudelotii', price: 13, r: .03, up: .005, cover: .5, o2: .25, tMin: 20, tMax: 28, biofilm: .8, look: { shape: 'epi', c: [.12, .32, .12], n: 22, sx: 2.6, sz: 1, rz: .9 } },
+  // Gazons
+  hcuba:     { cat: 'Gazons', name: 'HC Cuba', price: 9, r: .12, up: .012, cover: .6, o2: .6, tMin: 20, tMax: 28, biofilm: .8, dem: .9, look: { shape: 'carpet', c: [.35, .7, .25], n: 600, size: .3, sy: .25 } },
+  monte:     { cat: 'Gazons', name: 'Monte Carlo', price: 8, r: .12, up: .012, cover: .6, o2: .6, tMin: 18, tMax: 28, biofilm: .8, dem: .5, look: { shape: 'carpet', c: [.3, .65, .22], n: 450, size: .45, sy: .25 } },
+  marsilea:  { cat: 'Gazons', name: 'Marsilea hirsuta', price: 7, r: .06, up: .007, cover: .5, o2: .4, tMin: 15, tMax: 30, biofilm: .7, look: { shape: 'carpet', c: [.25, .5, .18], n: 350, size: .55, sy: .2 } },
+  hydro:     { cat: 'Gazons', name: 'Hydrocotyle tripartita', price: 7, r: .14, up: .012, cover: .5, o2: .6, tMin: 18, tMax: 28, biofilm: .6, dem: .3, look: { shape: 'carpet', c: [.35, .65, .25], n: 400, size: .5, sy: .5 } },
+  stauro:    { cat: 'Gazons', name: 'Staurogyne repens', price: 7, r: .06, up: .008, cover: .5, o2: .4, tMin: 18, tMax: 30, biofilm: .6, dem: .3, look: { shape: 'rosette', c: [.3, .55, .2], n: 20, k: 4, len: 1, wid: .4, tilt: .6, front: true } },
+  // Flottantes
+  lemna:     { cat: 'Flottantes', name: "Lentilles d'eau", price: 2, r: .35, up: .025, cover: .2, o2: .2, tMin: 4, tMax: 33, biofilm: .3, floating: true, look: { shape: 'float', c: [.45, .7, .2], n: 600, size: .35 } },
+  riccia:    { cat: 'Flottantes', name: 'Riccia fluitans', price: 5, r: .25, up: .02, cover: .7, o2: .6, tMin: 15, tMax: 30, biofilm: 1, floating: true, look: { shape: 'float', c: [.45, .75, .25], n: 500, size: .5, sy: .4 } },
+  salvinia:  { cat: 'Flottantes', name: 'Salvinia', price: 3, r: .3, up: .022, cover: .25, o2: .2, tMin: 16, tMax: 32, biofilm: .3, floating: true, look: { shape: 'float', c: [.35, .6, .2], n: 300, size: .7 } },
+  limnob:    { cat: 'Flottantes', name: 'Grenouillette (Limnobium)', price: 4, r: .25, up: .022, cover: .3, o2: .2, tMin: 15, tMax: 30, biofilm: .4, floating: true, look: { shape: 'float', c: [.3, .6, .25], n: 160, size: 1.2 } },
+  pistia:    { cat: 'Flottantes', name: "Laitue d'eau (Pistia)", price: 5, r: .25, up: .03, cover: .35, o2: .2, tMin: 18, tMax: 32, biofilm: .4, floating: true, look: { shape: 'float', c: [.5, .72, .4], n: 50, size: 2.2, sy: .5 } },
+  phyllan:   { cat: 'Flottantes', name: 'Phyllanthus fluitans (Red Root)', price: 6, r: .2, up: .02, cover: .25, o2: .2, tMin: 18, tMax: 30, biofilm: .3, floating: true, dem: .2, look: { shape: 'float', c: [.65, .3, .2], n: 220, size: .55 } },
+  nenuphar:  { cat: 'Flottantes', name: 'Nénuphar rustique', price: 25, r: .06, up: .02, cover: .5, o2: .4, tMin: 1, tMax: 32, biofilm: .5, floating: true, look: { shape: 'float', c: [.18, .42, .15], n: 18, size: 4, sy: .1 } },
 };
+// Petit résumé auto pour la boutique et l'installation
+function plantDesc(p) {
+  const t = [];
+  if ((p.dem || 0) >= .6) t.push('Exigeante : CO2 conseillé');
+  else if ((p.dem || 0) >= .3) t.push('Aime le CO2');
+  else t.push('Facile');
+  if (p.up >= .02) t.push('pompe les nitrates');
+  if (p.cover >= .7) t.push('super abri pour les bébés');
+  if (p.biofilm >= 1.2) t.push('beaucoup de biofilm');
+  if (p.tMin <= 5) t.push('résiste au froid (bassin)');
+  else t.push(`${p.tMin}–${p.tMax} °C`);
+  return t.join(' · ') + '.';
+}
 
+// price : prix pour 30 L. leach : relargage d'ammoniaque au début · acid : acidification · calc : calcaire (GH/KH/pH ↑)
+// tannin : tanins (eau ambrée, pH ↓) · mix : couleurs des grains
 const SUBSTRATES = {
-  sand:   { name: 'Sable inerte',        color: [.76, .68, .52], surface: 1,   soil: false },
-  gravel: { name: 'Gravier gris',        color: [.5, .5, .5],    surface: 1.2, soil: false },
-  black:  { name: 'Gravier noir',        color: [.1, .1, .11],   surface: 1.2, soil: false },
-  soil:   { name: 'Soil actif',          color: [.13, .09, .07], surface: 1.5, soil: true },
-  earth:  { name: 'Terre de jardin',     color: [.3, .22, .14],  surface: 1.3, soil: false, earth: true },
+  sand:    { name: 'Sable inerte fin',            price: 6,  color: [.76, .68, .52], surface: 1,   desc: 'Neutre, sans effet sur l\'eau.' },
+  loire:   { name: 'Sable de Loire',              price: 8,  color: [.7, .6, .46],   surface: 1.1, mix: [[.78, .68, .52], [.62, .48, .32], [.55, .52, .48], [.85, .8, .7], [.42, .33, .25]], desc: 'Grains beiges, ocre et gris. Naturel et inerte.' },
+  quartz:  { name: 'Sable de quartz blanc',       price: 7,  color: [.9, .88, .83],  surface: 1,   desc: 'Inerte. Fond clair : les crevettes colorées s\'y voient (et les prédateurs aussi).' },
+  gravel:  { name: 'Gravier gris',                price: 6,  color: [.5, .5, .5],    surface: 1.2, desc: 'Inerte.' },
+  black:   { name: 'Gravier noir',                price: 8,  color: [.1, .1, .11],   surface: 1.2, desc: 'Inerte. Fond sombre : les couleurs ressortent moins pour les prédateurs.' },
+  basalt:  { name: 'Sable noir basaltique',       price: 9,  color: [.16, .16, .17], surface: 1.1, mix: [[.13, .13, .14], [.2, .2, .21], [.1, .1, .1]], desc: 'Inerte, très sombre.' },
+  pebbles: { name: 'Galets de rivière',           price: 10, color: [.55, .5, .44],  surface: .8,  mix: [[.6, .55, .48], [.45, .42, .4], [.7, .66, .6], [.5, .4, .32]], desc: 'Peu de surface pour les bactéries.' },
+  pozz:    { name: 'Pouzzolane',                  price: 9,  color: [.42, .17, .12], surface: 1.8, mix: [[.45, .18, .12], [.35, .13, .1], [.25, .1, .08]], desc: 'Roche volcanique poreuse : énormément de bactéries.' },
+  akadama: { name: 'Akadama',                     price: 14, color: [.55, .36, .2],  surface: 1.6, acid: .15, desc: 'Argile japonaise : acidifie légèrement, très poreuse.' },
+  catappa: { name: 'Sable + feuilles de catappa', price: 9,  color: [.5, .4, .28],   surface: 1.2, tannin: .3, mix: [[.72, .62, .46], [.45, .3, .16], [.35, .22, .12]], desc: 'Tanins : eau ambrée, pH un peu plus bas, biofilm.' },
+  soil:    { name: 'Soil actif (Caridina)',       price: 25, color: [.13, .09, .07], surface: 1.5, soil: true, desc: 'Fait chuter KH et pH. Relargue de l\'ammoniaque les premières semaines.' },
+  soilNeo: { name: 'Soil neutre (Neocaridina)',   price: 20, color: [.2, .14, .1],   surface: 1.5, leach: .6, desc: 'Nutritif, ne touche pas au KH. Relargue un peu au début.' },
+  coral:   { name: 'Sable corallien',             price: 10, color: [.93, .89, .8],  surface: 1.1, calc: 1, mix: [[.95, .92, .85], [.9, .84, .74], [.98, .96, .92]], desc: 'Calcaire : fait monter GH, KH et pH. À éviter pour les Caridina.' },
+  earth:   { name: 'Terre de jardin',             price: 0,  color: [.3, .22, .14],  surface: 1.3, earth: true, pond: true, desc: 'Bassin uniquement. Gratuite, un peu de tanins.' },
 };
 
 const WATERS = {
@@ -163,18 +230,14 @@ const SHOP = {
   powder:   { cat: 'Nourriture', name: 'Poudre bébés (40 portions)', price: 10, use: 'powder', qty: 40 },
   fenben:   { cat: 'Soins', name: 'Fenbendazole (3 traitements)', price: 20, use: 'fenben', qty: 3 },
   trap:     { cat: 'Soins', name: 'Piège à planaires', price: 15, tool: 'trap' },
-  p_moss:   { cat: 'Plantes', name: 'Mousse de Java', price: 8, plant: 'moss' },
-  p_hygro:  { cat: 'Plantes', name: 'Hygrophila', price: 6, plant: 'hygro' },
-  p_vallis: { cat: 'Plantes', name: 'Vallisnérie', price: 6, plant: 'vallis' },
-  p_anubias:{ cat: 'Plantes', name: 'Anubias', price: 12, plant: 'anubias' },
-  p_egeria: { cat: 'Plantes', name: 'Élodée dense', price: 4, plant: 'egeria' },
-  p_lemna:  { cat: 'Plantes', name: 'Lentilles d\'eau', price: 2, plant: 'lemna' },
   rasbora:  { cat: 'Poissons', name: 'Micro rasbora', price: 4, fish: 1 },
 };
+for (const k in PLANTS) SHOP['p_' + k] = { cat: 'Plantes', name: PLANTS[k].name, price: PLANTS[k].price, plant: k, desc: plantDesc(PLANTS[k]) };
 // prix du sol pour 30 L
-const SUB_PRICE = { sand: 6, gravel: 6, black: 8, soil: 25, earth: 0 };
+const SUB_PRICE = Object.fromEntries(Object.entries(SUBSTRATES).map(([k, v]) => [k, v.price]));
 const FREE_STUFF = ['Bandelettes de test', 'Thermomètre', 'Légumes blanchis', 'Eau du robinet', 'Épuisette', 'Siphon', 'Éclairage LED de base'];
-const MONEY = '🐚';
+const MONEY = 'SC';  // Shrimp Coin (affiché avec la pièce en pixel art côté UI)
+const MONEY_NAME = 'Shrimp Coin';
 const START_MONEY = 400;
 const BREEDERS = ['CrevetteMania', 'Tom_Aqua', 'ShrimpLab69', 'Les Bacs de Léa', 'Neo&Co', 'BeeKeeper', 'AquaNico', 'Caridinette', 'PetitBacPerso', 'GhostShrimp_fr', 'Mamie Aquariophile', 'Le Crevettier'];
 

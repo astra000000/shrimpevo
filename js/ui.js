@@ -16,7 +16,36 @@ const UI = (() => {
   const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const T = () => (W && W.tanks[W.cur]) || null;
   const career = () => !!W && W.mode === 'career';
-  const money = n => Economy.fmt(n);
+  // Shrimp Coin : pièce en pixel art (HTML) ; moneyTxt pour le texte brut (options, toasts)
+  const money = n => `${Math.round(n * 10) / 10}<i class="sc" title="${MONEY_NAME}"></i>`;
+  const moneyTxt = n => Economy.fmt(n);
+  (function coinIcon() {
+    const C = { o: '#6b4300', g: '#f2c230', G: '#ffe680', d: '#c98f12', b: '#2457b8', B: '#173c85', r: '#f07a2a', R: '#b8401a', a: '#ffb070', k: '#140a05', w: '#fff3e0' };
+    const shrimp = [
+      '.a.a.....',
+      'a.a.rr...',
+      '..rkrrr..',
+      '..rrrwrr.',
+      '....RrRr.',
+      '.....rwr.',
+      '..r..rr..',
+      '.rrrrR...',
+      '..rr.....',
+    ];
+    const cv = document.createElement('canvas'); cv.width = cv.height = 16;
+    const x = cv.getContext('2d');
+    for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) {
+      const d = Math.hypot(i - 7.5, j - 7.5);
+      let c = null;
+      if (d <= 7.9) c = 'o';
+      if (d <= 6.9) c = i + j < 13 ? 'G' : i + j > 18 ? 'd' : 'g';
+      if (d <= 5.2) c = i + j > 17 ? 'B' : 'b';
+      const sj = j - 3, si = i - 3;
+      if (sj >= 0 && sj < 9 && si >= 0 && si < 9 && shrimp[sj][si] !== '.') c = shrimp[sj][si];
+      if (c) { x.fillStyle = C[c]; x.fillRect(i, j, 1, 1); }
+    }
+    document.documentElement.style.setProperty('--sc', `url(${cv.toDataURL()})`);
+  })();
   function cssRGB(c) { return `rgb(${Math.round(Math.min(1, Math.max(0, c[0])) * 255)},${Math.round(Math.min(1, Math.max(0, c[1])) * 255)},${Math.round(Math.min(1, Math.max(0, c[2])) * 255)})`; }
   const swatchOf = g => cssRGB(Gen.mix([.3, .4, .4], Gen.color(g), g.dens));
   const varG = k => Gen.express(Gen.strainDNA(k, 0), VARIETIES[k].genus);
@@ -95,7 +124,7 @@ const UI = (() => {
         <label class="chk"><input type="radio" name="mat" value="1" checked> Bac déjà cyclé</label></div>
       </fieldset>
       <fieldset class="fs"><legend>Plantes</legend>
-        ${Object.entries(PLANTS).map(([k, p]) => `<label class="chk"><input type="checkbox" data-plant="${k}"${k === 'moss' || k === 'hygro' ? ' checked' : ''}> ${esc(p.name)}</label>`).join('')}
+        ${PLANT_CATS.map(c => `<div class="pcat"><small>${c}</small>${Object.entries(PLANTS).filter(([, p]) => p.cat === c).map(([k, p]) => `<label class="chk" title="${esc(plantDesc(p))}"><input type="checkbox" data-plant="${k}"${k === 'moss' || k === 'hygro' ? ' checked' : ''}> ${esc(p.name)}</label>`).join('')}</div>`).join('')}
         <div class="dimc" style="font-size:12px">Les plantes peuvent amener des hydres ou des planaires…</div>
       </fieldset>
       <fieldset class="fs" id="fEquipAq"><legend>Équipement</legend>
@@ -291,7 +320,8 @@ const UI = (() => {
         [`Granulés${left('granules')}`, () => need('granules', 'granulés')() && Sim.A.feed(W, s, 'granules')],
         ['Légumes', () => Sim.A.feed(W, s, 'veg')],
         [`Poudre${left('powder')}`, () => need('powder', 'poudre')() && Sim.A.feed(W, s, 'powder')]]],
-      ['Eau', [['Changer l\'eau…', waterModal], ['Compléter', topOffModal], ['Siphonner', () => Sim.A.siphon(W, s)]]],
+      ['Eau', [['Changer l\'eau…', waterModal], ['Compléter', topOffModal], ['Siphonner', () => Sim.A.siphon(W, s)],
+        ...(W.tanks.length > 1 ? [['🧫 Ensemencer…', seedModal]] : [])]],
       ...(career() ? [['Tests', [['Bandelette', () => Economy.testStrip(W, s)], [`Gouttes${left('drops')}`, () => { const e = Economy.testDrops(W, s); if (e) toast(e, 'warn'); }]]]] : []),
       ['Soins', [...(pond ? [] : [['Nettoyer filtre', () => Sim.A.cleanFilter(W, s)]]),
         [`Anti-parasites${left('fenben')}`, () => confirm('Fenbendazole : tue hydres et planaires en 4 jours, léger stress pour les crevettes. Lancer ?') && need('fenben', 'fenbendazole')() && Sim.A.treat(W, s, 'fenben')],
@@ -312,6 +342,26 @@ const UI = (() => {
       }
       el.appendChild(g);
     }
+  }
+
+  // Ensemencer le bac courant avec un bac mûr
+  function seedModal() {
+    const s = T();
+    const others = W.tanks.filter(t => t !== s);
+    const row = t => {
+      const ci = Sim.cycleInfo(t);
+      return `<div class="item"><span class="t">${esc(t.name)}</span><span class="d">Cycle ${pct(ci.pct)}${ci.pct >= 1 ? ' ✓' : ''}${t.pred.plan >= 1 || t.pred.hydra >= 1 ? ' · <b class="bad">parasites présents</b>' : ''}</span>
+        <div class="row"><button data-src="${t.id}" data-k="water">Seau d'eau</button><button data-src="${t.id}" data-k="sponge">Presser le filtre</button><button data-src="${t.id}" data-k="mulm">Substrat + mousse</button></div></div>`;
+    };
+    modal(`<h2>🧫 Ensemencer ${esc(s.name)}</h2>
+      <p class="dimc" style="font-size:13px">Les bactéries vivent surtout dans le filtre et le sol, très peu dans l'eau. Presser la masse filtrante d'un bac mûr est le plus efficace ; le substrat marche bien mais peut amener planaires et hydres.</p>
+      <div class="items">${others.map(row).join('')}</div>`, el => {
+      el.querySelectorAll('[data-src]').forEach(b => b.onclick = () => {
+        const err = Sim.seedFrom(W, Sim.tankById(W, +b.dataset.src), s, b.dataset.k);
+        if (err) return toast(err, 'warn');
+        closeModal(); refreshAll(true);
+      });
+    });
   }
 
   // ---------- Modales ----------
@@ -385,10 +435,14 @@ const UI = (() => {
         <span class="p">${price(v.price)} / crevette</span>
         <div class="row">${[5, 10, 20].map(n => `<button data-shrimp="${k}" data-n="${n}">+${n}</button>`).join('')}</div></div>`).join('');
     } else {
+      let lastPc = null;
       items = Object.entries(SHOP).filter(([, it]) => it.cat === cat).map(([k, it]) => {
+        const pc = it.plant ? PLANTS[it.plant].cat : null;
+        const head = pc && pc !== lastPc ? `<h4 class="items-head">${pc}</h4>` : '';
+        lastPc = pc;
         const own = career() && (it.eq || it.tool || it.use) ? `<span class="own">Possédé : ${it.use ? (W.inv[it.use] || 0) + ' doses' : W.inv[k] || 0}${it.eq ? ` (${Economy.spare(W, k)} libre)` : ''}</span>` : '';
         const btn = it.tank ? `<button data-tank="${k}">Installer…</button>` : it.plant || it.fish ? `<button data-buy="${k}" ${s ? '' : 'disabled'}>Ajouter à ${s ? esc(s.name) : '—'}</button>` : `<button data-buy="${k}">Acheter</button>`;
-        return `<div class="item"><span class="t">${esc(it.name)}</span><span class="d">${esc(it.desc || (it.tank ? (it.tank.env === 'pond' ? 'Dehors : saisons, pluie, gel.' : 'Éclairage LED de base inclus.') : ''))}</span>
+        return head + `<div class="item"><span class="t">${esc(it.name)}</span><span class="d">${esc(it.desc || (it.tank ? (it.tank.env === 'pond' ? 'Dehors : saisons, pluie, gel.' : 'Éclairage LED de base inclus.') : ''))}</span>
           <span class="p">${price(it.price)}${it.tank ? ' + sol' : ''}</span>${own}<div class="row">${btn}</div></div>`;
       }).join('');
     }
@@ -417,11 +471,15 @@ const UI = (() => {
     const sources = Economy.waterSources(W);
     modal(`<h2>Installer : ${esc(it.name)}</h2>
       <div class="row">Nom <input id="nName" value="${pond ? 'Bassin' : 'Bac'} ${W.nextTank}" style="width:160px;background:#0f1e22;border:2px solid var(--line)"></div>
-      <div class="row">Sol <select id="nSub">${subs.map(k => `<option value="${k}"${k === (pond ? 'earth' : 'sand') ? ' selected' : ''}>${SUBSTRATES[k].name}${career() ? ' — ' + money(Math.ceil((SUB_PRICE[k] || 0) * it.tank.volume / 30)) : ''}</option>`).join('')}</select></div>
+      <div class="row">Sol <select id="nSub">${subs.map(k => `<option value="${k}"${k === (pond ? 'earth' : 'sand') ? ' selected' : ''}>${SUBSTRATES[k].name}${career() ? ' — ' + moneyTxt(Math.ceil((SUB_PRICE[k] || 0) * it.tank.volume / 30)) : ''}</option>`).join('')}</select></div>
+      <div class="dimc" id="nSubDesc" style="font-size:13px"></div>
       <div class="row">Eau <select id="nWater">${waterOptions(sources[0])}</select></div>
       ${career() ? '<p class="dimc" style="font-size:13px">Le bac est neuf : il faut ~3 semaines de jeu pour que les bactéries s\'installent (ou des bactéries en bouteille). Pas de filtre ni de chauffage inclus.</p>' : '<label class="chk"><input type="checkbox" id="nMat" checked> Bac déjà cyclé</label>'}
       <div class="row"><b id="nPrice"></b> <button class="big" id="nGo">Installer</button></div>`, () => {
-      const upd = () => $('nPrice').textContent = career() ? 'Total : ' + money(Economy.tankPrice(key, $('nSub').value)) : '';
+      const upd = () => {
+        $('nPrice').innerHTML = career() ? 'Total : ' + money(Economy.tankPrice(key, $('nSub').value)) : '';
+        $('nSubDesc').textContent = SUBSTRATES[$('nSub').value].desc || '';
+      };
       $('nSub').onchange = upd; upd();
       $('nGo').onclick = () => {
         const r = Economy.createTank(W, key, { name: $('nName').value.slice(0, 30), substrate: $('nSub').value, water: $('nWater').value, mature: $('nMat') ? $('nMat').checked : false });
@@ -443,10 +501,11 @@ const UI = (() => {
         ${W.tanks.length ? `<div class="row">vers <select data-to="${b.id}">${tanks}</select></div>
         <div class="row"><button data-drip="${b.id}">💧 Goutte-à-goutte (${Sim.DRIP_HOURS} h)</button><button data-direct="${b.id}">Direct</button></div>` : '<span class="bad">Achète d\'abord un bac !</span>'}</div>`;
     }).join('');
-    const trs = W.transfers.map(t => `<div>⏳ ${t.shrimp.length} crevette(s) → ${esc(Sim.tankById(W, t.to)?.name)} · ${t.method === 'drip' ? 'goutte-à-goutte' : 'direct'} · encore ${Math.max(0, (t.end - W.t) * (career() ? 2.5 : 1)).toFixed(0)} ${career() ? 'min réelles' : 'h'}</div>`).join('');
+    const trList = () => W.transfers.map(t => `<div>⏳ ${t.shrimp.length} crevette(s) → ${esc(Sim.tankById(W, t.to)?.name)} · ${t.method === 'drip' ? 'goutte-à-goutte' : 'direct'} · encore ${Math.max(0, (t.end - W.t) * (career() ? 2.5 : 1)).toFixed(0)} ${career() ? 'min réelles' : 'h'}</div>`).join('') || '<div class="dimc">Rien en cours.</div>';
+    const trs = W.transfers.length ? trList() : '';
     modal(`<h2>📦 Colis et acclimatation</h2>
       ${bags ? `<div class="items">${bags}</div>` : '<p class="dimc">Aucun colis en attente.</p>'}
-      ${trs ? `<h4>En cours</h4>${trs}` : ''}
+      ${trs ? `<h4>En cours</h4><div id="trList">${trs}</div>` : ''}
       <p class="dimc" style="font-size:13px">Le goutte-à-goutte amène doucement l'eau du sac aux paramètres du bac : presque aucun choc. En direct, un gros écart de GH, de pH ou de T° peut tuer ou faire rater des mues.</p>`, el => {
       const go = (id, method) => {
         const bag = W.bags.find(b => b.id === +id);
@@ -456,6 +515,12 @@ const UI = (() => {
       };
       el.querySelectorAll('[data-drip]').forEach(b => b.onclick = () => go(b.dataset.drip, 'drip'));
       el.querySelectorAll('[data-direct]').forEach(b => b.onclick = () => go(b.dataset.direct, 'direct'));
+      // compte à rebours en direct tant que la fenêtre est ouverte
+      const iv = setInterval(() => {
+        const box = document.getElementById('trList');
+        if (!box || $('modal').classList.contains('hidden')) return clearInterval(iv);
+        box.innerHTML = trList();
+      }, 1000);
     }, true);
   }
 
@@ -640,6 +705,13 @@ const UI = (() => {
     if (inv) return v < bad ? 'bad' : v < warn ? 'warn' : 'ok';
     return v > bad ? 'bad' : v > warn ? 'warn' : 'ok';
   }
+  function cycleRow(s) {
+    const ci = Sim.cycleInfo(s);
+    if (ci.pct >= 1) return ['Cycle azote', '✓ cyclé', 'ok'];
+    const bar = `<span class="cycle"><i style="width:${(ci.a * 50).toFixed(0)}%"></i><b style="width:${(ci.b * 50).toFixed(0)}%"></b></span>`;
+    const eta = !isFinite(ci.days) ? 'bloqué' : career() ? `~${fmt(ci.days, 0)} j de jeu (≈ ${fmt(ci.days, 0)} h réelles)` : `~${fmt(ci.days, 0)} j`;
+    return ['Cycle azote', pct(ci.pct), ci.pct < .5 ? 'bad' : 'warn', `${bar}${ci.phase} · encore ${eta}${ci.fuel ? '' : ' · <b class="bad">rien à manger pour les bactéries : nourris un peu</b>'}`];
+  }
   function renderWater() {
     const s = T();
     if (!s) { $('water').innerHTML = '<p class="dimc">Pas de bac.</p>'; $('alerts').innerHTML = ''; return; }
@@ -665,6 +737,7 @@ const UI = (() => {
       ['CO2', rC ? val(rC, 0, ' ppm') : '?', cls(rC?.v, 30, 45), rC ? '' : 'contrôleur requis'],
       ['Niveau', pct(rL.v), cls(rL.v, .9, .75, true)],
       ['Nourriture', `${fmt(food, 1)} mg/L`, food > 3 ? 'warn' : 'dimc', `déchets ${fmt(s.pools.det / V, 1)} mg/L`],
+      cycleRow(s),
       ...(career() ? [] : [['Bactéries', `${pct(Math.min(1, s.bactA / Kb))} / ${pct(Math.min(1, s.bactB / Kb))}`, s.bactB / Kb < .15 ? 'warn' : 'dimc', 'nitrosomonas / nitrobacter']]),
       ['Algues', pct(s.algae), cls(s.algae, .4, .7)],
       ['Densité', `${fmt(s.crowd || 0, 1)} /L`, cls(s.crowd || 0, 4, 7)],
@@ -692,7 +765,7 @@ const UI = (() => {
     $('alerts').innerHTML = al.map(a => `<div class="alert${/Pluie|Filtre|Traitement|colis|testée/.test(a) ? ' w' : ''}">${a}</div>`).join('');
     const fx = $('fixH');
     if (fx) fx.onclick = () => {
-      if (career() && !Economy.pay(W, SHOP.heater.price)) return toast('Il faut ' + money(SHOP.heater.price) + ' pour un chauffage neuf.', 'warn');
+      if (career() && !Economy.pay(W, SHOP.heater.price)) return toast('Il faut ' + moneyTxt(SHOP.heater.price) + ' pour un chauffage neuf.', 'warn');
       Sim.A.fixHeater(W, s); refreshAll(true);
     };
     const ob = $('openBags');
@@ -965,7 +1038,7 @@ const UI = (() => {
     const date = W.mode === 'hardcore' ? new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' · ' : '';
     const s = T();
     $('clock').innerHTML = `${date}Jour <b>${c.day}</b> · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${seasonOf(c.doy)}${s && s.light > 0 ? ' ☀' : ' ☾'}`;
-    $('money').textContent = career() ? money(W.money) : '';
+    $('money').innerHTML = career() ? money(W.money) : '';
   }
 
   function refreshAll(force) {

@@ -95,7 +95,8 @@ const Voxel = (() => {
       }
     }
     // segments 3D
-    const line = (pts, part, thick = 1) => {
+    // anim : [code, décalage] pour le shader (1 patte, 2 pléopode, 3 grande antenne, 4 petite antenne / maxillipède)
+    const line = (pts, part, thick = 1, anim) => {
       let total = 0;
       for (let s = 1; s < pts.length; s++) total += Math.hypot(pts[s][0] - pts[s - 1][0], pts[s][1] - pts[s - 1][1], pts[s][2] - pts[s - 1][2]);
       let acc = 0;
@@ -104,7 +105,8 @@ const Voxel = (() => {
         const L = Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]), n = Math.max(1, Math.ceil(L / (vs * .4)));
         for (let m = 0; m <= n; m++) {
           const f = m / n, x = p[0] + (q[0] - p[0]) * f, y = p[1] + (q[1] - p[1]) * f, z = p[2] + (q[2] - p[2]) * f;
-          const a = { u: x, v: 1, part, t: (acc + L * f) / total };
+          const t = (acc + L * f) / total;
+          const a = { u: x, v: 1, part, t, an: anim && [anim[0], t, anim[1]] };
           at(x, y, z, a);
           if (thick > 1 && (acc + L * f) / total < .5) at(x, y + vs, z, a);
         }
@@ -124,10 +126,10 @@ const Voxel = (() => {
             if ((x - ec[0]) ** 2 + (y - ec[1]) ** 2 + (z - ec[2]) ** 2 <= er * er)
               at(x, y, z, { u: .93, v: 0, part: 1, t: 0, hl: y > ec[1] + er * .35 && x > ec[0] + er * .1 }, true);
       // antennes : deux longues qui montent en courbe, deux courtes fourchues
-      line([[.96, ch + .03, .025 * s], [1.05, ch + .14 * ant, .06 * s * ant], [1.1 + .1 * ant, ch + .32 * ant, .1 * s * ant], [1.18 + .22 * ant, ch + .45 * ant, .15 * s * ant], [1.2 + .45 * ant, ch + .55 * ant, .22 * s * ant]], 6);
-      line([[.97, ch + .02, .02 * s], [1.08, ch + .06, .04 * s], [1.17, ch + .04, .08 * s]], 6);
+      line([[.96, ch + .03, .025 * s], [1.05, ch + .14 * ant, .06 * s * ant], [1.1 + .1 * ant, ch + .32 * ant, .1 * s * ant], [1.18 + .22 * ant, ch + .45 * ant, .15 * s * ant], [1.2 + .45 * ant, ch + .55 * ant, .22 * s * ant]], 6, 1, [3, s]);
+      line([[.97, ch + .02, .02 * s], [1.08, ch + .06, .04 * s], [1.17, ch + .04, .08 * s]], 6, 1, [4, s + 2]);
       // maxillipèdes
-      line([[.94, ch - .05, .02 * s], [1.04, ch - .09, .04 * s], [1.08, ch - .07, .05 * s]], 2);
+      line([[.94, ch - .05, .02 * s], [1.04, ch - .09, .04 * s], [1.08, ch - .07, .05 * s]], 2, 1, [4, s * 3]);
       // pattes marcheuses
       for (let k = 0; k < 5; k++) {
         const u = .63 + k * .065, r = rad(u) * slim, c = cy(u);
@@ -136,13 +138,13 @@ const Voxel = (() => {
         // genou haut et écarté, pied loin du corps : silhouette « araignée »
         const p1 = front ? [u + .05, c - r - .02, s * (r * .45 + .06)] : [u + .015 * (k - 2), c - r * .45 + .02, s * (r * .45 + .16)];
         const p2 = front ? [u + .11, c - r - .06, s * (r * .45 + .05)] : [p1[0] + .04 * (k - 2), -.17, p1[2] + s * .09];
-        line([p0, p1, p2], 2);
+        line([p0, p1, p2], 2, 1, [1, k * 1.9 + (s > 0 ? 3.14 : 0)]);
       }
       // pléopodes
       for (let k = 0; k < 5; k++) {
         const u = .2 + k * .08, r = rad(u) * slim, c = cy(u);
         const len = o.sex === 'F' ? .07 : .045;
-        line([[u, c - r * belly * .9, s * .03], [u - .025, c - r * belly - len, s * .045]], 2);
+        line([[u, c - r * belly * .9, s * .03], [u - .025, c - r * belly - len, s * .045]], 2, 1, [2, k]);
       }
     }
     // œufs sous l'abdomen
@@ -188,7 +190,7 @@ const Voxel = (() => {
     '0,0,1': [[1, 0, 1], [1, 1, 1], [0, 1, 1], [0, 0, 1]], '0,0,-1': [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]],
   };
   function mesh(vox, vs, colorFn, offX) {
-    const P = [], Nn = [], C = [], I = [];
+    const P = [], Nn = [], C = [], I = [], A = [];
     const key = (i, j, k) => ((i + 512) * 1024 + (j + 512)) * 1024 + (k + 512);
     for (const a of vox.values()) {
       const [col, alpha] = colorFn(a);
@@ -199,6 +201,7 @@ const Voxel = (() => {
           P.push((a.i + c[0]) * vs + offX, (a.j + c[1]) * vs, (a.k + c[2]) * vs);
           Nn.push(d[0], d[1], d[2]);
           C.push(col[0], col[1], col[2], alpha);
+          if (a.an) A.push(a.an[0], a.an[1], a.an[2]); else A.push(0, 0, 0);
         }
         I.push(base, base + 1, base + 2, base, base + 2, base + 3);
       }
@@ -207,6 +210,7 @@ const Voxel = (() => {
     g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(Nn, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(C, 4));
+    g.setAttribute('aAnim', new THREE.Float32BufferAttribute(A, 3));
     g.setIndex(I);
     g.computeBoundingBox();
     return g;

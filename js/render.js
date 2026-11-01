@@ -329,7 +329,7 @@ const Render = (() => {
     if (!voxMat) voxMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true });
     voxPool = [];
     for (let i = 0; i <= VOX_MAX; i++) {
-      const m = new THREE.Mesh(new THREE.BufferGeometry(), voxMat);
+      const m = new THREE.Mesh(new THREE.BufferGeometry(), animVoxMat());
       m.visible = false; m.frustumCulled = false; m.userData.vox = true;
       scene.add(m);
       voxPool.push(m);
@@ -352,17 +352,19 @@ const Render = (() => {
     world.marker.renderOrder = 10;
     world.marker.visible = false;
     scene.add(world.marker);
-    world.builtPlants = Object.keys(s.plants).join();
+    buildFood();
   }
 
+  // Sols mélangés (sable de Loire, galets…) : une couleur de grain au hasard
+  const grainColor = (sub, R) => sub.mix ? sub.mix[(R() * sub.mix.length) | 0] : sub.color;
   function substrateMesh(sub, R, w, d, segX, segZ, heightFn, maskFn) {
     const g = new THREE.PlaneGeometry(w, d, segX, segZ);
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position, cols = [];
-    const c = sub.color;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i);
       pos.setY(i, heightFn(x, z));
+      const c = grainColor(sub, R);
       const n = (R() - .5) * .18;
       cols.push(c[0] + n, c[1] + n * .9, c[2] + n * .8);
     }
@@ -394,12 +396,11 @@ const Render = (() => {
     const sm = substrateMesh(sub, R, L, W, 40, 20, dims.surf);
     scene.add(sm);
     const fr = new THREE.BufferGeometry(), P = [], C = [];
-    const c = sub.color;
     for (let i = 0; i < 40; i++) {
       const x0 = -L / 2 + i * L / 40, x1 = x0 + L / 40;
       const y0 = dims.surf(x0, W / 2), y1 = dims.surf(x1, W / 2);
       P.push(x0, 0, W / 2, x1, 0, W / 2, x1, y1, W / 2, x0, 0, W / 2, x1, y1, W / 2, x0, y0, W / 2);
-      const n = (R() - .5) * .15;
+      const c = sub.color, n = (R() - .5) * .15;
       for (let k = 0; k < 6; k++) C.push(c[0] * .8 + n, c[1] * .8 + n, c[2] * .8 + n);
     }
     fr.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
@@ -511,8 +512,15 @@ const Render = (() => {
   }
 
   // ---------- Plantes ----------
-  function buildPlants(s, R) {
-    for (const key of Object.keys(PLANTS)) buildPlant(key, rng((s.seed || 1) + key.length * 977 + key.charCodeAt(0)));
+  // Construites à la demande : seulement les plantes présentes dans le bac
+  function buildPlants(s) {
+    for (const key of Object.keys(s.plants)) ensurePlant(s, key);
+  }
+  function ensurePlant(s, key) {
+    if (world.plants[key] || !PLANTS[key]) return;
+    let h = s.seed || 1;
+    for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) % 2147483647;
+    buildPlant(key, rng(h));
   }
   function buildPlant(key, R) {
     const { aq } = world;
@@ -540,69 +548,104 @@ const Render = (() => {
       }
       return dims.rand(R);
     };
-    if (key === 'moss') {
-      const list = [];
+    const L = PLANTS[key].look;
+    const jit = (c, a = .08) => [c[0] + (R() - .5) * a, c[1] + (R() - .5) * a, c[2] + (R() - .5) * a];
+    const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const frontSpot = () => aq ? [(R() - .5) * (dims.L - 4), dims.W / 2 - 2 - R() * dims.W * .4] : dims.rand(R);
+    const rocks = world.anchors.filter(a => a.r);
+    const lambert = (o = {}) => new THREE.MeshLambertMaterial({ flatShading: true, ...o });
+
+    if (L.shape === 'moss') {
+      const list = [], s1 = L.s || 1;
       for (let i = 0; i < 220; i++) {
         const a = world.moss[(R() * world.moss.length) | 0];
         const ang = R() * Math.PI * 2, d = R() * a.r * 1.2;
         const x = a.x + Math.cos(ang) * d, z = a.z + Math.sin(ang) * d;
         if (!dims.inside(x, z)) continue;
         const y = Math.max(dims.surf(x, z), a.y - d * .5) + .3;
-        const s0 = .5 + R() * .9;
-        list.push({ x, y, z, sx: s0, sy: s0 * .6, sz: s0, ry: R() * 6, c: [.16 + R() * .06, .3 + R() * .1, .1] });
+        const s0 = (.5 + R() * .9) * s1;
+        list.push({ x, y, z, sx: s0, sy: s0 * .6, sz: s0, ry: R() * 6, c: jit(L.c, .1) });
       }
-      place(new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ flatShading: true }), list.length), list);
-    } else if (key === 'hygro' || key === 'egeria') {
-      const nStem = 26, levels = 14;
+      place(new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), lambert(), list.length), list);
+    } else if (L.shape === 'ball') {
+      const list = [];
+      for (let i = 0; i < L.n; i++) {
+        const [x, z] = frontSpot(), r = L.size * (.7 + R() * .5);
+        list.push({ x, y: dims.surf(x, z) + r * .8, z, sx: r, sy: r * .9, sz: r, ry: R() * 6, c: jit(L.c, .05) });
+      }
+      place(new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), lambert(), list.length), list);
+    } else if (L.shape === 'stem') {
+      const nStem = L.nStem || 26, levels = 14, ny = L.ny, hh = L.h || [.55, .35];
       const stems = [], leaves = [];
       for (let i = 0; i < nStem; i++) {
-        const [x, z] = spot(true);
-        stems.push({ x, z, y0: dims.surf(x, z), h: H * (.55 + R() * .35) });
+        const [x, z] = L.h ? (hh[0] < .3 ? frontSpot() : spot(true)) : spot(true);
+        stems.push({ x, z, y0: dims.surf(x, z), h: H * (hh[0] + R() * hh[1]) });
       }
       for (let l = 0; l < levels; l++) for (let i = 0; i < nStem; i++) {
         const st = stems[i];
         const y = st.y0 + (l + .5) / levels * st.h;
-        const ny = key === 'hygro' ? 2 : 4;
+        const c = L.c2 ? lerp(L.c, L.c2, (l / levels) ** 1.5) : L.c;
         for (let k = 0; k < ny; k++) {
           const ry = k / ny * Math.PI * 2 + l * .9;
-          const len = key === 'hygro' ? 1.8 : 1.1;
-          leaves.push({ x: st.x + Math.cos(ry) * len * .5, y, z: st.z - Math.sin(ry) * len * .5, sx: len, sy: .08, sz: key === 'hygro' ? .45 : .18, ry, rz: .25,
-            c: key === 'hygro' ? [.25 + R() * .1, .5 + R() * .1, .15] : [.18, .45 + R() * .1, .12], level: l, stem: i });
+          leaves.push({ x: st.x + Math.cos(ry) * L.len * .5, y, z: st.z - Math.sin(ry) * L.len * .5, sx: L.len, sy: .08, sz: L.wid, ry, rz: .25, c: jit(c), level: l, stem: i });
         }
       }
-      const stemList = stems.map(st => ({ x: st.x, y: st.y0, z: st.z, sx: 1, sy: 1, sz: 1, c: [.3, .45, .2], st }));
+      const stemList = stems.map(st => ({ x: st.x, y: st.y0, z: st.z, sx: 1, sy: 1, sz: 1, c: L.c2 ? lerp(L.c, L.c2, .3) : [.3, .45, .2], st }));
       const stemMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(.12, .15, 1, 4).translate(0, .5, 0), new THREE.MeshLambertMaterial(), nStem);
       place(stemMesh, stemList);
-      place(new THREE.InstancedMesh(new THREE.SphereGeometry(1, 5, 3), new THREE.MeshLambertMaterial({ flatShading: true }), leaves.length), leaves);
-      pl.stems = { mesh: stemMesh, stems, levels, nStem };
+      place(new THREE.InstancedMesh(new THREE.SphereGeometry(1, 5, 3), lambert(), leaves.length), leaves);
+      pl.stems = { mesh: stemMesh, stems, levels, nStem, ny };
       stems.forEach(st => world.anchors.push({ x: st.x, y: st.y0 + st.h * .5, z: st.z, plant: key }));
-    } else if (key === 'vallis') {
+    } else if (L.shape === 'ribbon') {
       const list = [];
-      const g = new THREE.PlaneGeometry(.5, 1, 1, 6).translate(0, .5, 0);
+      const g = new THREE.PlaneGeometry(L.w, 1, 1, 6).translate(0, .5, 0);
       const p = g.attributes.position;
-      for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setZ(i, Math.sin(y * 2.2) * .25 * y); }
+      for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setZ(i, Math.sin(y * 2.2) * L.wave * y); }
       g.computeVertexNormals();
-      for (let i = 0; i < 70; i++) {
-        const [x, z] = spot(true);
-        list.push({ x, y: dims.surf(x, z), z, sx: 1, sy: H * (.6 + R() * .4), sz: 1 + R(), ry: R() * 6, c: [.3 + R() * .1, .55 + R() * .1, .2] });
+      for (let i = 0; i < L.n; i++) {
+        const [x, z] = L.front ? frontSpot() : spot(true);
+        list.push({ x, y: dims.surf(x, z), z, sx: 1, sy: H * (L.h[0] + R() * L.h[1]), sz: 1 + R(), ry: R() * 6, c: jit(L.c, .1) });
       }
       place(new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), list.length), list);
       pl.sway = true;
-    } else if (key === 'anubias') {
+    } else if (L.shape === 'rosette') {
       const list = [];
-      for (let i = 0; i < 24; i++) {
-        const a = world.anchors.filter(a => a.r)[i % Math.max(1, world.anchors.filter(a => a.r).length)] || { x: 0, y: 3, z: 0, r: 2 };
+      for (let i = 0; i < L.n; i++) {
+        const [x, z] = L.front ? frontSpot() : spot(R() < .6);
+        const y0 = dims.surf(x, z), sz0 = .7 + R() * .5;
+        for (let k = 0; k < L.k; k++) {
+          const ry = k / L.k * Math.PI * 2 + R() * .5, rz = L.tilt * (.7 + R() * .5), len = L.len * sz0 * (.7 + R() * .4);
+          list.push({ x: x + Math.cos(ry) * Math.cos(rz) * len * .5, y: y0 + Math.sin(rz) * len * .5 + .2, z: z - Math.sin(ry) * Math.cos(rz) * len * .5,
+            sx: len * .5, sy: .08, sz: L.wid * sz0 * .5, ry, rz, c: jit(L.c) });
+        }
+      }
+      // mélange pour que la croissance fasse apparaître des feuilles partout
+      for (let i = list.length - 1; i > 0; i--) { const j = (R() * (i + 1)) | 0; [list[i], list[j]] = [list[j], list[i]]; }
+      place(new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 3), lambert(), list.length), list);
+    } else if (L.shape === 'epi') {
+      const list = [];
+      for (let i = 0; i < L.n; i++) {
+        const a = rocks[i % Math.max(1, rocks.length)] || { x: 0, y: 3, z: 0, r: 2 };
         const ang = R() * Math.PI * 2;
-        list.push({ x: a.x + Math.cos(ang) * a.r * .8, y: a.y + R() * 1.5, z: a.z + Math.sin(ang) * a.r * .8, sx: 2.2, sy: .18, sz: 1.2, ry: -ang, rz: .5 + R() * .4, c: [.08, .25 + R() * .06, .08] });
+        list.push({ x: a.x + Math.cos(ang) * a.r * .8, y: a.y + R() * 1.5, z: a.z + Math.sin(ang) * a.r * .8, sx: L.sx, sy: .16, sz: L.sz, ry: -ang, rz: L.rz * (.8 + R() * .5), c: jit(L.c, .06) });
       }
-      place(new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 3), new THREE.MeshLambertMaterial({ flatShading: true }), list.length), list);
-    } else if (key === 'lemna') {
+      place(new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 3), lambert(), list.length), list);
+    } else if (L.shape === 'carpet') {
       const list = [];
-      for (let i = 0; i < 600; i++) {
-        const [x, z] = aq ? [(R() - .5) * (dims.L - 1), (R() - .5) * (dims.W - 1)] : (() => { const a = R() * Math.PI * 2, d = Math.sqrt(R()) * dims.R; return [Math.cos(a) * d, Math.sin(a) * d]; })();
-        list.push({ x, y: 0, z, sx: .35, sy: .06, sz: .35, ry: R() * 6, c: [.4 + R() * .1, .7, .2] });
+      for (let i = 0; i < L.n; i++) {
+        const [x, z] = frontSpot();
+        const s0 = L.size * (.7 + R() * .6);
+        list.push({ x, y: dims.surf(x, z) + s0 * L.sy * .5, z, sx: s0, sy: s0 * L.sy * 2, sz: s0, ry: R() * 6, c: jit(L.c, .1) });
       }
-      place(new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 6), new THREE.MeshLambertMaterial(), list.length), list);
+      place(new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), lambert(), list.length), list);
+    } else if (L.shape === 'float') {
+      const list = [];
+      for (let i = 0; i < L.n; i++) {
+        const [x, z] = aq ? [(R() - .5) * (dims.L - 1), (R() - .5) * (dims.W - 1)] : (() => { const a = R() * Math.PI * 2, d = Math.sqrt(R()) * dims.R; return [Math.cos(a) * d, Math.sin(a) * d]; })();
+        const s0 = L.size * (.75 + R() * .5);
+        list.push({ x, y: 0, z, sx: s0, sy: (L.sy || .15) * s0, sz: s0, ry: R() * 6, c: jit(L.c, .1) });
+      }
+      place(new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, L.size > 1.5 ? 9 : 6), new THREE.MeshLambertMaterial(), list.length), list);
       pl.floating = true;
     }
     world.plants[key] = pl;
@@ -611,14 +654,15 @@ const Render = (() => {
   function updatePlants(s) {
     const top = dims.waterTop();
     const m = new THREE.Matrix4(), v = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), e = new THREE.Euler();
+    for (const key in s.plants) ensurePlant(s, key);
     for (const key in world.plants) {
       const pl = world.plants[key];
       const cover = s.plants[key] || 0;
       if (pl.stems) {
-        const { stems, levels, mesh } = pl.stems;
+        const { stems, levels, mesh, ny } = pl.stems;
         const lv = Math.round(cover * levels);
         const leafMesh = pl.meshes[1];
-        leafMesh.mesh.count = cover > 0 ? Math.min(leafMesh.n, lv * stems.length * (key === 'hygro' ? 2 : 4)) : 0;
+        leafMesh.mesh.count = cover > 0 ? Math.min(leafMesh.n, lv * stems.length * ny) : 0;
         mesh.count = cover > 0 ? stems.length : 0;
         stems.forEach((st, i) => {
           m.compose(v.set(st.x, st.y0, st.z), q.identity(), sc.set(1, Math.max(.1, st.h * lv / levels), 1));
@@ -664,6 +708,18 @@ const Render = (() => {
   }
   function pickTarget(a, sh) {
     const baby = sh.size < 7;
+    // de la nourriture au fond : on y va (les plus proches d'abord)
+    const foods = world.food.filter(f => f.landed);
+    if (foods.length && Math.random() < .75) {
+      let f = foods[0], best = Infinity;
+      for (const g of foods) { const d = Math.hypot(g.x - a.x, g.z - a.z) * (.5 + Math.random()); if (d < best) { best = d; f = g; } }
+      const ang = Math.random() * Math.PI * 2, rr = f.r * (.5 + Math.random() * .7);
+      const x = f.x + Math.cos(ang) * rr, z = f.z + Math.sin(ang) * rr;
+      a.mode = Math.hypot(x - a.x, z - a.z) < 10 ? 'walk' : 'swim';
+      a.tx = x; a.tz = z; a.ty = surfY(x, z) + sh.size / 10 * BODY_Y;
+      a.food = f;
+      return;
+    }
     const r = Math.random();
     const cm = sh.size / 10;
     if (r < .55 || baby && r < .8) {
@@ -698,6 +754,7 @@ const Render = (() => {
     const sp = a.mode === 'swim' ? (2.5 + cm * 1.2) * lazy : (.35 + cm * .25) * lazy;
     if (d < .15) {
       a.mode = 'graze'; a.t = (2 + Math.random() * 8) / lazy; a.pitch = 0;
+      if (a.food) { a.yaw = Math.atan2(-(a.food.z - a.z), a.food.x - a.x); a.t = 6 + Math.random() * 14; a.food = null; }
       if (!a.perch) a.y = surfY(a.x, a.z) + cm * BODY_Y;
       a.perch = false;
       return;
@@ -716,6 +773,62 @@ const Render = (() => {
     let dyaw = ((ty - a.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     a.yaw += dyaw * Math.min(1, dt * 4);
     a.pitch += ((a.mode === 'swim' ? Math.atan2(dy, Math.hypot(dx, dz)) * .5 : 0) - a.pitch) * Math.min(1, dt * 3);
+  }
+
+  // ---------- Nourriture visible ----------
+  const MAX_FOOD = 60;
+  const FOOD_POOL = { granules: 'food', veg: 'veg', powder: 'powder' };
+  function buildFood() {
+    world.food = [];
+    world.foodMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial(), MAX_FOOD);
+    world.foodMesh.count = 0; world.foodMesh.frustumCulled = false;
+    scene.add(world.foodMesh);
+  }
+  function spawnFood(s, type) {
+    const top = dims.waterTop();
+    const [cx, cz] = world.aq ? [(Math.random() - .5) * dims.L * .5, (Math.random() - .2) * dims.W * .4] : dims.rand();
+    const start = Math.max(1e-6, s.pools[FOOD_POOL[type]]);
+    const n = type === 'veg' ? 1 : type === 'granules' ? 7 : 30;
+    for (let i = 0; i < n && world.food.length < MAX_FOOD; i++) {
+      const sp = type === 'veg' ? 0 : type === 'granules' ? 1.6 : 4;
+      const x = cx + (Math.random() - .5) * sp * 2, z = cz + (Math.random() - .5) * sp * 2;
+      const size = type === 'veg' ? [3, .5, 2] : type === 'granules' ? [.35, .22, .35] : [.15, .15, .15];
+      const col = type === 'veg' ? [.35 + Math.random() * .05, .6, .2] : type === 'granules' ? [.45, .28, .14] : [.85, .78, .6];
+      world.food.push({ type, x, z, y: top - .3, floor: dims.surf(x, z) + size[1] * .5, size, col, start, k: 1, r: type === 'veg' ? 2 : sp + .6,
+        rot: Math.random() * 6, fall: type === 'powder' ? .8 + Math.random() : 3 + Math.random() * 2, landed: false });
+    }
+    // les crevettes qui traînent sentent la nourriture
+    for (const a of agents.values()) if (a.mode === 'graze' && Math.random() < .7) a.t = Math.random() * 2;
+  }
+  function updateFood(s, dt) {
+    const fed = s._fed;
+    if (fed && fed !== world.lastFed) {
+      world.lastFed = fed;
+      if (s.t - fed.t < 2) spawnFood(s, fed.type);
+    }
+    const fm = world.foodMesh;
+    let i = 0;
+    world.food = world.food.filter(f => {
+      const k = Math.min(1, s.pools[FOOD_POOL[f.type]] / f.start);
+      f.k = Math.min(f.k, k);
+      if (f.k < .08) return false;
+      if (!f.landed) {
+        f.y -= f.fall * dt;
+        f.x += Math.sin(time * 2 + f.rot) * dt * .3;
+        if (f.y <= f.floor) { f.y = f.floor; f.landed = true; }
+      }
+      const sc = Math.sqrt(f.k);
+      tmpE.set(0, f.rot, f.landed ? 0 : time * .5);
+      tmpQ.setFromEuler(tmpE);
+      tmpM.compose(tmpV.set(f.x, f.landed ? f.floor - f.size[1] * (1 - sc) * .5 : f.y, f.z), tmpQ, tmpS.set(f.size[0] * sc, f.size[1] * Math.max(.4, sc), f.size[2] * sc));
+      fm.setMatrixAt(i, tmpM);
+      fm.setColorAt(i, new THREE.Color(...f.col));
+      i++;
+      return true;
+    });
+    fm.count = i;
+    fm.instanceMatrix.needsUpdate = true;
+    if (fm.instanceColor) fm.instanceColor.needsUpdate = true;
   }
 
   function newPlan() {
@@ -821,6 +934,7 @@ const Render = (() => {
     } else world.equip.air.visible = s.eq.air;
     updateBubbles(s, dt, top);
     updatePlants(s);
+    updateFood(s, dt);
 
     // Crevettes
     const sm = world.shrimp, ga = sm.geometry.attributes;
@@ -864,6 +978,39 @@ const Render = (() => {
     } else world.marker.visible = false;
     updateCamera();
     renderer.render(scene, camera);
+  }
+
+  // Matériau voxel animé (un par maillage du pool : uniformes propres, même programme GPU)
+  const VOX_ANIM_VS = `
+    float sw = uAnim.y, wk = uAnim.z, ph = uAnim.x;
+    // queue : battement en nage, respiration au repos
+    float tail = clamp((.15 - position.x) / .65, 0., 1.);
+    transformed.y += sin(uTime * (3. + sw * 13.) + ph) * (.012 + sw * .11) * tail * tail;
+    float code = aAnim.x, t = aAnim.y, off = aAnim.z;
+    if (code > .5 && code < 1.5) {          // pattes marcheuses
+      float w = sin(uTime * 11. + ph + off);
+      transformed.x += w * (.006 + wk * .03) * t;
+      transformed.y += (max(0., cos(uTime * 11. + ph + off)) * .018 * wk + sw * .05) * t;
+    } else if (code < 2.5 && code > 1.5) {  // pléopodes : pagaient
+      transformed.x += sin(uTime * (7. + sw * 16.) + off * 1.3 + ph) * (.006 + sw * .022) * t;
+    } else if (code > 2.5 && code < 3.5) {  // grandes antennes
+      float a2 = t * t;
+      transformed.y += sin(uTime * 1.8 + ph + off * 1.7) * .07 * a2 - sw * .12 * a2;
+      transformed.z += cos(uTime * 1.3 + ph + off) * .05 * a2;
+      transformed.x -= sw * .1 * a2;
+    } else if (code > 3.5) {                // petites antennes, maxillipèdes : grignotage
+      transformed.y += sin(uTime * (6. + (1. - sw) * (1. - wk) * 8.) + ph + off) * .018 * t;
+    }`;
+  function animVoxMat() {
+    const m = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true });
+    m.userData.u = { uTime: { value: 0 }, uAnim: { value: new THREE.Vector3() } };
+    m.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, m.userData.u);
+      sh.vertexShader = 'uniform float uTime;\nuniform vec3 uAnim;\nattribute vec3 aAnim;\n' +
+        sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>' + VOX_ANIM_VS);
+    };
+    m.customProgramCacheKey = () => 'voxAnim';
+    return m;
   }
 
   // Paramètres du modèle voxel selon le stade de vie (quantifiés pour réutiliser le cache)
@@ -911,6 +1058,9 @@ const Render = (() => {
       m.geometry = geo; m.visible = true;
       m.position.set(a.x, a.y, a.z);
       m.rotation.set(0, a.yaw, a.pitch + Math.sin(time * 7 + a.phase) * .05 * a.swim, 'YZX');
+      const u = m.material.userData.u;
+      u.uTime.value = time;
+      u.uAnim.value.set(a.phase, a.swim > .5 ? 1 : 0, a.mode === 'walk' ? 1 : 0);
       m.scale.setScalar(sh.size / 10);
       sm.setMatrixAt(a.idx, ZERO);
     }

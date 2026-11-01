@@ -193,3 +193,13 @@ canvas#graph, canvas#hist { width: 100%; background: #08141a; border: 2px solid 
   #setupForm { grid-template-columns: 1fr; }
   #clock { font-size: 12px; }
 }
+.cycle { display: block; position: relative; height: 6px; margin: 2px 0 3px; background: #0f1e22; border: 1px solid var(--line); }
+.cycle i, .cycle b { position: absolute; top: 0; bottom: 0; }
+.cycle i { left: 0; background: #e0a43a; }
+.cycle b { left: 50%; background: #4fc38a; }
+.sc { display: inline-block; width: 1.1em; height: 1.1em; margin-left: .2em; background: var(--sc) center / contain no-repeat; image-rendering: pixelated; vertical-align: -.2em; }
+.coin-hero { display: flex; align-items: center; gap: 10px; justify-content: center; font-size: 13px; color: #ffd76a; }
+.coin-hero img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; image-rendering: auto; }
+.items-head { grid-column: 1 / -1; margin: 6px 0 0; color: #9fd0d6; }
+.pcat { margin-bottom: 4px; }
+.pcat small { display: block; color: #9fd0d6; }

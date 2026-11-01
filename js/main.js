@@ -59,8 +59,10 @@ const Main = (() => {
     const dtR = Math.min(.25, (now - last) / 1000);
     last = now;
     const rate = REAL_RATE[W.mode];
-    let hours = rate ? dtR / 3600 * rate : dtR * UI.speed;
-    if (W.over && W.mode === 'hardcore') hours = 0;
+    // temps réel : horloge murale (un onglet en arrière-plan ne perd pas de temps, le retard est rattrapé)
+    if (rate && W.realLast == null) W.realLast = Date.now();
+    let hours = rate ? Math.max(0, (Date.now() - W.realLast) / 3.6e6 * rate) : dtR * UI.speed;
+    if (W.over && W.mode === 'hardcore') { hours = 0; W.realLast = Date.now(); }
     const t0 = performance.now(), want = hours;
     const maxDt = UI.speed >= 1000 ? 2 : 1;
     while (hours > 1e-9 && performance.now() - t0 < FRAME_BUDGET) {
@@ -78,7 +80,7 @@ const Main = (() => {
     UI.setEffective(effHps);
     Render.frame(UI.tank, dtR);
     UI.refreshAll(false);
-    if (rate) W.realLast = Date.now();
+    if (rate) W.realLast += (want - Math.max(0, hours)) / rate * 3.6e6;
     if (now - lastSave > 20000) { Save.store(W); lastSave = now; }
     if (W.over && !W._overShown) {
       W._overShown = true;

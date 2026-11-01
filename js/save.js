@@ -16,7 +16,7 @@ const Save = (() => {
   }
   function store(W) {
     try {
-      W.realLast = Date.now();
+      if (W.realLast == null) W.realLast = Date.now(); // temps réel : la boucle avance realLast au fil de la simulation
       localStorage.setItem(KEY[W.mode], serialize(W));
       return true;
     } catch (e) {
