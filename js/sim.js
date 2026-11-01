@@ -102,6 +102,7 @@ const Sim = (() => {
     s.w.temp = cfg.env === 'aquarium' ? (s.eq.heater ? s.eq.target : roomTemp(W, c)) : airTemp(W, c);
     s.w.o2 = o2Sat(s.w.temp);
     for (const p of cfg.plants || []) { s.plants[p] = .2; hitchhikers(W, s, true); }
+    ensureDecor(W, s);
     s.pools.biofilm = s.cfg.volume * (cfg.mature ? 3 : .3);
     if (cfg.mature) {
       const Kb = bactCap(s);
@@ -121,12 +122,37 @@ const Sim = (() => {
     if (rnd() < .15) { s.pred.plan += 2; if (!silent) log(W, 'Des planaires sont peut-être arrivées avec les plantes…', 'warn', false, s); }
   }
 
+  // ---------- Décor ----------
+  // Positions normalisées (x, z dans -0.5..0.5) : le rendu les convertit selon la taille du bac
+  function ensureDecor(W, s) {
+    if (s.decor) return s.decor;
+    const R = seeded(s.seed || 1);
+    const career = W.mode === 'career';
+    s.decor = [];
+    s.nextDecor = 1;
+    const n = career ? 2 : s.env === 'pond' ? 7 : 3 + ((R() * 3) | 0);
+    for (let i = 0; i < n; i++) s.decor.push({ id: s.nextDecor++, k: 'rock', x: R() - .5, z: R() - .5, ry: R() * 6, s: .6 + R(), seed: (R() * 1e6) | 0 });
+    if (!career && s.env === 'aquarium') s.decor.push({ id: s.nextDecor++, k: 'wood', x: (R() - .5) * .6, z: (R() - .5) * .4, ry: R() * 6, s: 1, seed: (R() * 1e6) | 0 });
+    return s.decor;
+  }
+  function seeded(seed) { let a = seed >>> 0 || 1; return () => { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; }
+  function decorFx(s) {
+    const f = { surface: 0, tannin: 0, calc: 0, biofilm: 0, cover: 0 };
+    for (const d of s.decor || []) {
+      const D = DECOR[d.k];
+      if (!D) continue;
+      const k = d.s || 1;
+      for (const key in f) f[key] += (D[key] || 0) * k;
+    }
+    return f;
+  }
+
   function bactCap(s) {
     const sub = SUBSTRATES[s.cfg.substrate];
     const fb = s.env === 'aquarium' ? FILTERS[s.eq.filter].bact : 1.5;
     let cover = 0;
     for (const k in s.plants) cover += s.plants[k] * PLANTS[k].biofilm;
-    return .05 * (sub.surface + fb + cover * .5);
+    return .05 * (sub.surface + fb + cover * .5 + decorFx(s).surface);
   }
 
   // ---------- Événements ----------
@@ -220,7 +246,8 @@ const Sim = (() => {
     }
     s.light = light;
     const lemna = s.plants.lemna || 0;
-    const lightBelow = light * (1 - .6 * lemna);
+    const lightBelow = light * (1 - .6 * lemna) * (aq ? 1 - .15 * (s.glass || 0) : 1);  // algues sur la vitre
+    const dfx = decorFx(s);
 
     // Température
     let envT, k;
@@ -270,7 +297,7 @@ const Sim = (() => {
       cover += cv * pd.cover;
       bioS += cv * pd.biofilm;
     }
-    cover = Math.min(1, cover);
+    cover = Math.min(1, cover + dfx.cover);
     s.cover = cover;
     {
       const take = upN * dt;
@@ -283,7 +310,9 @@ const Sim = (() => {
     const comp = Math.min(.85, upN / .03);
     s.algae += (.1 / 24 * light * nutr * (1 - comp) * (w.no3 > 20 ? 2 : 1) * s.algae * (1 - s.algae)
       - (nutr < .3 ? .02 / 24 * s.algae : 0)) * dt;
-    const K = V * 2 * (sub.surface + bioS + s.algae * 2) * (aq ? 1 : 1.5);
+    // algues sur la vitre : poussent avec la lumière et les nutriments
+    if (aq) s.glass = clamp((s.glass || .02) + (.05 / 24 * light * nutr * (1 - comp * .7) * (w.no3 > 20 ? 1.6 : 1) * (s.glass || .02) * (1 - (s.glass || .02))) * dt, .01, 1);
+    const K = V * 2 * (sub.surface + bioS + s.algae * 2 + dfx.biofilm) * (aq ? 1 : 1.5);
     const rB = .5 / 24 * (.3 + .7 * light) * (.4 + .6 * nutr) * (w.temp < 8 ? .3 : 1);
     P.biofilm += (rB * P.biofilm * (1 - P.biofilm / K) + .001 * V) * dt;
     if (!aq) {
@@ -310,6 +339,11 @@ const Sim = (() => {
       s.soilLeach *= Math.exp(-dt / (24 * 18));
     }
     if (sub.tannin) w.tannin += (sub.tannin - w.tannin) * .002 * dt;          // feuilles de catappa
+    if (dfx.tannin > w.tannin) w.tannin += (dfx.tannin - w.tannin) * .001 * dt; // bois flotté
+    if (dfx.calc) {                                                              // pierres calcaires
+      w.kh += Math.max(0, 5 - w.kh) * .0006 * dfx.calc * dt;
+      w.gh += Math.max(0, 9 - w.gh) * .0006 * dfx.calc * dt;
+    }
     if (sub.calc) {                                                              // calcaire : remonte GH/KH
       w.kh += Math.max(0, 7 - w.kh) * .0015 * sub.calc * dt;
       w.gh += Math.max(0, 12 - w.gh) * .0015 * sub.calc * dt;
@@ -353,6 +387,7 @@ const Sim = (() => {
     P.det += eaten * .2;
     o2cons += adultEq * .008 * mT / V;
     s.algae = Math.max(.01, s.algae - adultEq / V * .01 / 24 * dt);
+    if (s.glass) s.glass = Math.max(.01, s.glass - adultEq / V * .003 / 24 * dt);   // elles broutent aussi la vitre
 
     // Poissons (faim)
     const pr = s.pred;
@@ -495,7 +530,10 @@ const Sim = (() => {
           sh.kids += born;
           W.stats.born += born;
           if (born < b.n) log(W, `Surpopulation : ${b.n - born} bébés n'ont pas survécu.`, 'warn', false, s);
-          if (born) log(W, `🥚 #${sh.id} a libéré ${born} bébés.`, 'birth', false, s);
+          if (born) {
+            log(W, `🥚 #${sh.id} a libéré ${born} bébés.`, 'birth', false, s);
+            (s._hatch || (s._hatch = [])).push({ mom: sh.id, n: born, t: W.t });  // pour le rendu
+          }
           sh.berried = null;
         }
       }
@@ -766,6 +804,10 @@ const Sim = (() => {
       s.pred.fish = Math.max(0, s.pred.fish + d);
       log(W, d > 0 ? `+${d} micro rasbora.` : 'Un micro rasbora retiré.', 'info', false, s);
     },
+    scrape(W, s) {
+      s.glass = .02;
+      log(W, '🧽 Vitres raclées.', 'info', false, s);
+    },
     addBacteria(W, s) {
       const Kb = bactCap(s);
       s.bactA = Math.max(s.bactA, Kb * .3); s.bactB = Math.max(s.bactB, Kb * .3);
@@ -836,6 +878,7 @@ const Sim = (() => {
   function relink(W) {
     for (const s of W.tanks) {
       s._W = W; s._wx = W.weather; s.t = W.t;
+      ensureDecor(W, s);
       for (const sh of s.shrimp) if (!sh.g) sh.g = Gen.express(sh.dna, sh.genus);
     }
     for (const b of W.bags) for (const sh of b.shrimp) if (!sh.g) sh.g = Gen.express(sh.dna, sh.genus);
@@ -846,6 +889,6 @@ const Sim = (() => {
 
   return {
     newWorld, newTank, step, advance, calendar, popStats, isMature, express, nh3Of, A, CAP, BABY, bactCap, log,
-    cycleInfo, seedFrom, makeShrimp, storeShrimp, startTransfer, netFromTank, addBag, bagToTank, tankById, relink, roomTemp, waterOf, DRIP_HOURS,
+    cycleInfo, seedFrom, ensureDecor, decorFx, makeShrimp, storeShrimp, startTransfer, netFromTank, addBag, bagToTank, tankById, relink, roomTemp, waterOf, DRIP_HOURS,
   };
 })();

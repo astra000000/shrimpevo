@@ -105,7 +105,7 @@ const Economy = (() => {
     if (it.plant || it.fish) { if (!tank) return 'Choisis d\'abord un bac.'; }
     if (it.tank) return 'Utilise createTank.';
     if (!pay(W, it.price * qty)) return `Pas assez de ${MONEY}.`;
-    if (it.eq || it.tool) W.inv[key] = (W.inv[key] || 0) + qty;
+    if (it.eq || it.tool || it.deco) W.inv[key] = (W.inv[key] || 0) + qty;
     if (it.use) W.inv[it.use] = (W.inv[it.use] || 0) + it.qty * qty;
     if (it.plant) Sim.A.addPlant(W, tank, it.plant);
     if (it.fish) Sim.A.fish(W, tank, qty);

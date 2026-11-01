@@ -252,9 +252,11 @@ const Render = (() => {
   function build(s) {
     if (world) disposeScene();
     scene = new THREE.Scene();
+    const same = !!s && curTank === s;
     curTank = s;
     if (!s) { scene.background = new THREE.Color(0x0d1117); dims = null; return; }
-    agents.clear(); fishAgents = []; planAgents = []; hydraSpots = [];
+    if (!same) agents.clear();
+    fishAgents = []; planAgents = []; hydraSpots = [];
     const R = rng(s.seed || 1);
     const aq = s.env === 'aquarium';
     const vol = s.cfg.volume;
@@ -271,7 +273,7 @@ const Render = (() => {
       scene.background = new THREE.Color(0x0d1117);
       world.fx.uFloor.value = 2.5; world.fx.uSpan.value = H * .85;
       buildAquarium(s, R, sub);
-      cam.target.set(0, H * .4, 0); cam.dist = L * 1.5; cam.pitch = .18; cam.yaw = .35;
+      if (!same) { cam.target.set(0, H * .4, 0); cam.dist = L * 1.5; cam.pitch = .18; cam.yaw = .35; }
     } else {
       const D = 30 + vol / 50;
       const Rr = Math.sqrt(vol * 1000 / (Math.PI * D * .6));
@@ -282,7 +284,7 @@ const Render = (() => {
       dims.waterTop = () => D * s.w.level;
       world.fx.uFloor.value = 2; world.fx.uSpan.value = D * .8;
       buildPond(s, R, sub);
-      cam.target.set(0, D * .5, 0); cam.dist = Rr * 2.6; cam.pitch = .75; cam.yaw = .3;
+      if (!same) { cam.target.set(0, D * .5, 0); cam.dist = Rr * 2.6; cam.pitch = .75; cam.yaw = .3; }
     }
 
     // Lumières
@@ -292,22 +294,9 @@ const Render = (() => {
     scene.add(world.sun, world.amb);
     scene.fog = new THREE.Fog(0x557766, 100, 400);
 
-    // Rochers
-    const rockMat = new THREE.MeshLambertMaterial({ color: 0x6b6b66, flatShading: true });
-    world.rockMat = causticMat(rockMat);
-    const nRocks = aq ? 3 + (R() * 3 | 0) : 7;
-    for (let i = 0; i < nRocks; i++) {
-      const [x, z] = dims.rand(R);
-      const r = (aq ? dims.L * .04 : dims.R * .07) * (.6 + R());
-      const g = new THREE.DodecahedronGeometry(r, 0);
-      const m = new THREE.Mesh(g, rockMat);
-      m.scale.set(1, .6 + R() * .4, .8 + R() * .4);
-      m.rotation.set(R(), R() * 6, R());
-      m.position.set(x, dims.surf(x, z) + r * .2, z);
-      scene.add(m);
-      world.anchors.push({ x, y: dims.surf(x, z) + r * .7, z, r });
-      world.moss.push({ x, z, y: dims.surf(x, z) + r * .5, r: r * 1.3 });
-    }
+    // Décor (roches, bois…) décrit dans s.decor
+    world.rockMat = causticMat(new THREE.MeshLambertMaterial({ color: 0x6b6b66, flatShading: true }));
+    buildDecor(s);
     for (let i = 0; i < 4; i++) { const [x, z] = dims.rand(R); world.moss.push({ x, z, y: dims.surf(x, z), r: 3 }); }
 
     buildPlants(s, R);
@@ -337,6 +326,19 @@ const Render = (() => {
       scene.add(m);
       voxPool.push(m);
     }
+
+    // Ombres sous les crevettes
+    world.shadows = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 10).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .25, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), MAX_SHRIMP);
+    world.shadows.count = 0; world.shadows.frustumCulled = false;
+    world.shadows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(world.shadows);
+    // Coquilles d'œufs à l'éclosion
+    world.shells = [];
+    world.shellPts = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(MAX_SHELLS * 3), 3)),
+      new THREE.PointsMaterial({ color: 0xe8c878, size: .22, transparent: true, opacity: .8, depthWrite: false }));
+    world.shellPts.frustumCulled = false;
+    scene.add(world.shellPts);
 
     // Prédateurs
     world.fish = new THREE.InstancedMesh(fishGeometry(), new THREE.MeshLambertMaterial({ color: 0xe0582c }), MAX_FISH);
@@ -392,12 +394,16 @@ const Render = (() => {
     const box = new THREE.BoxGeometry(L, H, W);
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: 0x9fd0d6 }));
     edges.position.y = H / 2;
-    world.glass = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: 0x9fd6d6, transparent: true, opacity: .05, depthWrite: false, side: THREE.DoubleSide }));
+    world.glass = new THREE.Mesh(box, new THREE.ShaderMaterial({
+      uniforms: { uAlg: { value: 0 }, uLight: { value: 1 }, uCam: { value: new THREE.Vector3() } },
+      vertexShader: GLASS_VS, fragmentShader: GLASS_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    }));
     world.glass.position.y = H / 2;
     scene.add(edges, world.glass);
     // sol + tranche avant visible à travers la vitre
     const sm = substrateMesh(sub, R, L, W, 40, 20, dims.surf);
     scene.add(sm);
+    world.ground = sm;
     const fr = new THREE.BufferGeometry(), P = [], C = [];
     for (let i = 0; i < 40; i++) {
       const x0 = -L / 2 + i * L / 40, x1 = x0 + L / 40;
@@ -515,6 +521,7 @@ const Render = (() => {
     wall.position.y = (D + 2) / 2;
     scene.add(wall);
     const bottom = substrateMesh(sub, R, Rr * 2, Rr * 2, 40, 40, (x, z) => dims.surf(x, z));
+    world.ground = bottom;
     scene.add(bottom);
     // eau
     const wg = new THREE.CircleGeometry(Rr + .8, 48);
@@ -571,7 +578,17 @@ const Render = (() => {
       pl.meshes.push({ mesh, n: list.length, list });
     };
     const backZ = () => aq ? -dims.W / 2 + 2 + R() * dims.W * .35 : null;
+    const pp = curTank && curTank.plantPos && curTank.plantPos[key];
+    const around = () => {
+      const [cx, cz] = decorPos(pp), sp = aq ? dims.L * .09 : dims.R * .18;
+      for (let t = 0; t < 8; t++) {
+        const x = cx + (R() + R() + R() - 1.5) * sp, z = cz + (R() + R() + R() - 1.5) * sp * .8;
+        if (dims.inside(x, z)) return [x, z];
+      }
+      return [cx, cz];
+    };
     const spot = (back) => {
+      if (pp) return around();
       if (aq) {
         const x = (R() - .5) * (dims.L - 4);
         const z = back ? backZ() : (R() - .5) * (dims.W - 4);
@@ -582,7 +599,7 @@ const Render = (() => {
     const L = PLANTS[key].look;
     const jit = (c, a = .08) => [c[0] + (R() - .5) * a, c[1] + (R() - .5) * a, c[2] + (R() - .5) * a];
     const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-    const frontSpot = () => aq ? [(R() - .5) * (dims.L - 4), dims.W / 2 - 2 - R() * dims.W * .4] : dims.rand(R);
+    const frontSpot = () => pp ? around() : aq ? [(R() - .5) * (dims.L - 4), dims.W / 2 - 2 - R() * dims.W * .4] : dims.rand(R);
     const rocks = world.anchors.filter(a => a.r);
     const lambert = (o = {}) => new THREE.MeshLambertMaterial({ flatShading: true, ...o });
 
@@ -738,6 +755,12 @@ const Render = (() => {
     else[x, z] = dims.rand();
     const a = { x, z, y: surfY(x, z) + 1, yaw: Math.random() * 6, pitch: 0, mode: 'graze', t: Math.random() * 3, tx: x, ty: 0, tz: z, phase: Math.random() * 100, swim: 0 };
     a.ty = surfY(x, z);
+    if (mom && sh.age < 1) {
+      // nuée : les bébés sortent du ventre de la mère et nagent autour avant de se poser
+      a.y = mom.y + .3;
+      a.mode = 'swim'; a.tx = x + (Math.random() - .5) * 5; a.tz = z + (Math.random() - .5) * 5;
+      a.ty = Math.min(dims.waterTop() - 1, mom.y + .5 + Math.random() * 3); a.perch = true;
+    }
     return a;
   }
   function pickTarget(a, sh) {
@@ -937,10 +960,10 @@ const Render = (() => {
     U.uFogNear.value = fn; U.uFogFar.value = ff;
     if (aq) {
       world.back.material.color.setRGB(.05 + s.algae * .1, .1 + s.algae * .25, .11 + s.algae * .05);
-      world.glass.material.color.setRGB(.6 - s.algae * .3, .84, .6 - s.algae * .3);
-      world.glass.material.opacity = .05 + s.algae * .15;
+      const gu = world.glass.material.uniforms;
+      gu.uAlg.value = s.glass || 0; gu.uLight.value = .25 + L * .75; gu.uCam.value.copy(camera.position);
     }
-    world.rockMat.color.setRGB(.42 - s.algae * .15, .42 + s.algae * .05, .4 - s.algae * .2);
+    for (const m of world.decorMats) m.color.setRGB(1 - s.algae * .35, 1 - s.algae * .05, 1 - s.algae * .45);
 
     // Surface de l'eau
     const top = dims.waterTop();
@@ -1002,9 +1025,17 @@ const Render = (() => {
       ga.iMisc.setXYZW(i, sh.g.dens, sh.berried ? 1 : 0, Sim.express(sh), (sh.id * 7.31) % 97);
       ga.iAnim.setXY(i, a.phase, a.swim);
       a.idx = i;
+      const gy = surfY(a.x, a.z), k = Math.max(.25, 1 - (a.y - gy) / 12);
+      tmpE.set(0, a.yaw, 0); tmpQ.setFromEuler(tmpE);
+      tmpM.compose(tmpV.set(a.x + .08, gy + .05, a.z), tmpQ, tmpS.set(sc * .75 * k, 1, sc * .28 * k));
+      world.shadows.setMatrixAt(i, tmpM);
       i++;
     }
     sm.count = i;
+    world.shadows.count = i;
+    world.shadows.instanceMatrix.needsUpdate = true;
+    world.shadows.material.opacity = .08 + .22 * (s.light || 0);
+    updateHatch(s, dt);
     updateVoxels(s, sm);
     sm.instanceMatrix.needsUpdate = true;
     ga.iColor.needsUpdate = ga.iPat.needsUpdate = ga.iMisc.needsUpdate = ga.iAnim.needsUpdate = true;
@@ -1023,6 +1054,206 @@ const Render = (() => {
     } else world.marker.visible = false;
     updateCamera();
     renderer.render(scene, camera);
+  }
+
+  // ---------- Décor ----------
+  // Position normalisée (-0.5..0.5) ↔ coordonnées de la scène
+  function decorPos(d) {
+    if (dims.aq) return [d.x * (dims.L - 6), d.z * (dims.W - 5)];
+    let x = d.x * dims.R * 1.6, z = d.z * dims.R * 1.6;
+    const r = Math.hypot(x, z), mx = dims.R * .8;
+    if (r > mx) { x *= mx / r; z *= mx / r; }
+    return [x, z];
+  }
+  function decorNorm(x, z) {
+    const c = v => Math.max(-.5, Math.min(.5, v));
+    return dims.aq ? [c(x / (dims.L - 6)), c(z / (dims.W - 5))] : [c(x / (dims.R * 1.6)), c(z / (dims.R * 1.6))];
+  }
+  const hash3 = (x, y, z) => { const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return h - Math.floor(h); };
+  function paint(geo, base, fn) {
+    const g = geo.index ? geo.toNonIndexed() : geo, p = g.attributes.position, C = [];
+    for (let i = 0; i < p.count; i += 3) {
+      const cx = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, cy = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3, cz = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3;
+      const c = fn ? fn(cx, cy, cz, base) : base, n = .85 + hash3(cx, cy, cz) * .3;
+      for (let k = 0; k < 3; k++) C.push(c[0] * n, c[1] * n, c[2] * n);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+  // Cylindre entre deux points (branches)
+  function limb(p0, p1, r0, r1, base) {
+    const d = new THREE.Vector3().subVectors(p1, p0), len = d.length();
+    const g = new THREE.CylinderGeometry(r1, r0, len, 6, Math.max(1, Math.round(len / 2)));
+    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()));
+    g.translate((p0.x + p1.x) / 2, (p0.y + p1.y) / 2, (p0.z + p1.z) / 2);
+    return paint(g, base, (x, y, z, c) => { const st = Math.sin(y * 3 + x * 2) * .06; return [c[0] + st, c[1] + st, c[2] + st * .8]; });
+  }
+  function buildDecor(s) {
+    world.decorMats = []; world.decorObjs = []; world.bumps = [];
+    const mats = {};
+    const mat = kind => mats[kind] || (mats[kind] = (() => {
+      const m = causticMat(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: kind === 'tube' ? THREE.DoubleSide : THREE.FrontSide }));
+      world.decorMats.push(m);
+      return m;
+    })());
+    const base = dims.aq ? dims.L * .04 : dims.R * .07;
+    const surf0 = dims.surf;
+    for (const d of Sim.ensureDecor(s._W || { mode: 'sandbox' }, s)) {
+      const D = DECOR[d.k];
+      if (!D) continue;
+      const R = rng(d.seed || 1), [x, z] = decorPos(d), y0 = surf0(x, z), r = base * (d.s || 1);
+      const grp = new THREE.Group();
+      grp.userData.decorId = d.id;
+      grp.position.set(x, y0, z);
+      grp.rotation.y = d.ry || 0;
+      const add = g => { const m = new THREE.Mesh(g, mat(D.kind)); m.userData.decorId = d.id; grp.add(m); return m; };
+      const anchors = [];
+      if (D.kind === 'rock' || D.kind === 'lava') {
+        let g = D.kind === 'lava' ? new THREE.IcosahedronGeometry(r, 1) : new THREE.DodecahedronGeometry(r, 0);
+        if (D.kind === 'lava') {
+          const p = g.attributes.position;
+          for (let i = 0; i < p.count; i++) { const f = .75 + hash3(Math.round(p.getX(i) * 50), Math.round(p.getY(i) * 50), Math.round(p.getZ(i) * 50)) * .45; p.setXYZ(i, p.getX(i) * f, p.getY(i) * f, p.getZ(i) * f); }
+        }
+        const sy = .6 + R() * .4, sz = .8 + R() * .4;
+        g.scale(1, sy, sz);
+        g.rotateX((R() - .5) * .6); g.rotateZ((R() - .5) * .6);
+        g.translate(0, r * .2, 0);
+        g = paint(g, D.color, D.vein ? (px, py, pz, c) => Math.sin(py * 2.5 / r * 3 + px * .8) > .82 ? [.85, .87, .88] : c : D.kind === 'lava' ? (px, py, pz, c) => hash3(px * 3, py * 3, pz * 3) > .8 ? [.08, .05, .05] : c : null);
+        add(g);
+        const top = y0 + r * (.2 + sy * .9);
+        world.bumps.push({ x, z, r: r * .95, y0, top });
+        anchors.push([0, r * (.2 + sy * .7), 0, r]);
+      } else if (D.kind === 'wood' || D.kind === 'spider') {
+        const V = (a, b, c) => new THREE.Vector3(a, b, c);
+        if (D.kind === 'wood') {
+          const len = r * 5, pts = [V(-len / 2, r * .3, 0), V(-len / 6, r * .9, (R() - .5) * r), V(len / 6, r * 1.8, (R() - .5) * r), V(len / 2, r * 3.2, (R() - .5) * r * 2)];
+          for (let i = 1; i < pts.length; i++) {
+            add(limb(pts[i - 1], pts[i], r * .38 * (1 - (i - 1) * .2), r * .38 * (1 - i * .2), D.color));
+            anchors.push([pts[i].x, pts[i].y, pts[i].z, r * .7]);
+          }
+          for (let b = 0; b < 3; b++) {
+            const from = pts[1 + (b % 2)], to = V(from.x + (R() - .5) * r * 2, from.y + r * (1.2 + R() * 1.5), from.z + (R() - .5) * r * 2);
+            add(limb(from, to, r * .16, r * .07, D.color));
+            anchors.push([to.x, to.y, to.z, r * .4]);
+          }
+        } else {
+          for (let b = 0; b < 8; b++) {
+            const a = b / 8 * Math.PI * 2 + R() * .5, up = .5 + R() * .9, L1 = r * (2.5 + R() * 2);
+            const p0 = V(0, r * .2, 0), p1 = V(Math.cos(a) * L1 * .5, L1 * .45 * up, Math.sin(a) * L1 * .5), p2 = V(Math.cos(a + (R() - .5)) * L1, L1 * up, Math.sin(a + (R() - .5)) * L1);
+            add(limb(p0, p1, r * .14, r * .1, D.color));
+            add(limb(p1, p2, r * .1, r * .04, D.color));
+            anchors.push([p1.x, p1.y, p1.z, r * .4]);
+          }
+        }
+      } else if (D.kind === 'cholla') {
+        let g = new THREE.CylinderGeometry(r * .45, r * .45, r * 3.2, 10, 6);
+        g.rotateZ(Math.PI / 2); g.translate(0, r * .42, 0);
+        g = paint(g, D.color, (px, py, pz, c) => hash3(Math.round(px * 2), Math.round(py * 4), Math.round(pz * 4)) > .72 ? [.18, .13, .08] : c);
+        add(g);
+        world.bumps.push({ x, z, r: r * .6, y0, top: y0 + r * .85 });
+        anchors.push([0, r * .8, 0, r * .8]);
+      } else if (D.kind === 'tube') {
+        let g = new THREE.CylinderGeometry(r * .5, r * .5, r * 2.4, 12, 1, true);
+        g.rotateZ(Math.PI / 2); g.translate(0, r * .3, 0);
+        add(paint(g, D.color));
+      }
+      grp.updateMatrixWorld(true);
+      const v = new THREE.Vector3();
+      for (const [ax, ay, az, ar] of anchors) {
+        v.set(ax, ay, az).applyMatrix4(grp.matrixWorld);
+        world.anchors.push({ x: v.x, y: v.y, z: v.z, r: ar });
+        world.moss.push({ x: v.x, z: v.z, y: v.y - ar * .2, r: ar * 1.3 });
+      }
+      scene.add(grp);
+      world.decorObjs.push(grp);
+    }
+    // les crevettes marchent sur les roches
+    dims.surf = (x, z) => {
+      let y = surf0(x, z);
+      for (const b of world.bumps) {
+        const d2 = ((x - b.x) ** 2 + (z - b.z) ** 2) / (b.r * b.r);
+        if (d2 < 1) y = Math.max(y, b.y0 + (b.top - b.y0) * Math.sqrt(1 - d2));
+      }
+      return y;
+    };
+    world.surf0 = surf0;
+  }
+
+  // Vitre : algues qui s'étalent + reflets
+  const GLASS_VS = `varying vec3 vP; varying vec3 vN;
+    void main() { vec4 wp = modelMatrix * vec4(position, 1.0); vP = wp.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * wp; }`;
+  const GLASS_FS = `uniform float uAlg, uLight; uniform vec3 uCam; varying vec3 vP; varying vec3 vN;
+    float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float n2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h(i), h(i + vec2(1., 0.)), f.x), mix(h(i + vec2(0., 1.)), h(i + vec2(1., 1.)), f.x), f.y); }
+    float fbm(vec2 p) { float v = 0., a = .5; for (int i = 0; i < 4; i++) { v += a * n2(p); p *= 2.03; a *= .5; } return v; }
+    void main() {
+      if (abs(vN.y) > .5) discard;
+      vec2 uv = abs(vN.z) > .5 ? vP.xy : vP.zy;
+      float n = fbm(uv * .16) * .8 + n2(uv * 1.4) * .2;
+      float bias = (1. - smoothstep(0., 25., vP.y)) * .12;
+      float th = .78 - uAlg * .6 - bias;
+      float m = smoothstep(th, th + .1, n) * min(1., uAlg * 3.);
+      vec3 alg = mix(vec3(.2, .36, .1), vec3(.36, .42, .14), n2(uv * 3.));
+      vec3 V = normalize(uCam - vP);
+      float fr = pow(1. - abs(dot(V, vN)), 3.);
+      float streak = smoothstep(.93, 1., sin((uv.x + uv.y * .6) * .09 + 1.3)) * .6 + smoothstep(.97, 1., sin((uv.x - uv.y * .3) * .21)) * .4;
+      vec3 col = mix(vec3(.75, .9, .92) + streak * .25, alg * (.4 + .7 * uLight), m);
+      gl_FragColor = vec4(col, .03 + fr * .2 + streak * .06 * uLight + m * .6);
+    }`;
+
+  // ---------- Mode décor (souris) ----------
+  let deco = null;
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  function castAt(cx, cy, objs, recursive) {
+    const rect = canvas.getBoundingClientRect();
+    ndc.set((cx - rect.left) / rect.width * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    return ray.intersectObjects(objs, recursive)[0] || null;
+  }
+  function decoPick(cx, cy) {
+    if (!world || !world.decorObjs) return null;
+    const hit = castAt(cx, cy, world.decorObjs, true);
+    return hit ? hit.object.userData.decorId : null;
+  }
+  function groundAt(cx, cy) {
+    if (!world || !world.ground) return null;
+    const hit = castAt(cx, cy, [world.ground], false);
+    return hit ? hit.point : null;
+  }
+  function decoMode(cfg) { deco = cfg; if (!cfg) decoSelect(null); }
+  function decoSelect(id) {
+    if (world && world.decoBox) { scene.remove(world.decoBox); world.decoBox = null; }
+    if (id == null || !world) return;
+    const g = world.decorObjs.find(o => o.userData.decorId === id);
+    if (!g) return;
+    world.decoBox = new THREE.BoxHelper(g, 0xffe14d);
+    scene.add(world.decoBox);
+  }
+
+  // ---------- Éclosion ----------
+  const MAX_SHELLS = 120;
+  function updateHatch(s, dt) {
+    if (s._hatch) {
+      for (const h of s._hatch) {
+        if (h.seen) continue;
+        h.seen = true;
+        const ma = agents.get(h.mom);
+        if (!ma || s.t - h.t > 3) continue;
+        for (let i = 0; i < Math.min(30, h.n * 2) && world.shells.length < MAX_SHELLS; i++)
+          world.shells.push({ x: ma.x + (Math.random() - .5) * .6, y: ma.y - .1, z: ma.z + (Math.random() - .5) * .6, vx: (Math.random() - .5) * .8, vy: .3 + Math.random() * .6, vz: (Math.random() - .5) * .8, life: 4 + Math.random() * 4 });
+      }
+      s._hatch = s._hatch.filter(h => s.t - h.t < 3);
+    }
+    const p = world.shellPts.geometry.attributes.position;
+    world.shells = world.shells.filter(c => (c.life -= dt) > 0);
+    world.shells.forEach((c, i) => {
+      c.vy -= .25 * dt; c.vx *= 1 - dt; c.vz *= 1 - dt;
+      c.x += c.vx * dt; c.y = Math.max(surfY(c.x, c.z) + .05, c.y + c.vy * dt); c.z += c.vz * dt;
+      p.setXYZ(i, c.x, c.y, c.z);
+    });
+    for (let i = world.shells.length; i < MAX_SHELLS; i++) p.setXYZ(i, 0, -1000, 0);
+    p.needsUpdate = true;
   }
 
   // ---------- Effets d'eau ----------
@@ -1200,7 +1431,7 @@ const Render = (() => {
       transformed.x += w * (.006 + wk * .03) * t;
       transformed.y += (max(0., cos(uTime * 11. + ph + off)) * .018 * wk + sw * .05) * t;
     } else if (code < 2.5 && code > 1.5) {  // pléopodes : pagaient
-      transformed.x += sin(uTime * (7. + sw * 16.) + off * 1.3 + ph) * (.006 + sw * .022) * t;
+      transformed.x += sin(uTime * (7. + sw * 16. + uBerry * 9.) + off * 1.3 + ph) * (.006 + sw * .022 + uBerry * .014) * t;
     } else if (code > 2.5 && code < 3.5) {  // grandes antennes
       float a2 = t * t;
       transformed.y += sin(uTime * 1.8 + ph + off * 1.7) * .07 * a2 - sw * .12 * a2;
@@ -1211,10 +1442,10 @@ const Render = (() => {
     }`;
   function animVoxMat() {
     const m = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true });
-    m.userData.u = { uTime: { value: 0 }, uAnim: { value: new THREE.Vector3() } };
+    m.userData.u = { uTime: { value: 0 }, uAnim: { value: new THREE.Vector3() }, uBerry: { value: 0 } };
     m.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, m.userData.u);
-      sh.vertexShader = 'uniform float uTime;\nuniform vec3 uAnim;\nattribute vec3 aAnim;\n' +
+      sh.vertexShader = 'uniform float uTime, uBerry;\nuniform vec3 uAnim;\nattribute vec3 aAnim;\n' +
         sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>' + VOX_ANIM_VS);
     };
     m.customProgramCacheKey = () => 'voxAnim';
@@ -1269,6 +1500,7 @@ const Render = (() => {
       const u = m.material.userData.u;
       u.uTime.value = time;
       u.uAnim.value.set(a.phase, a.swim > .5 ? 1 : 0, a.mode === 'walk' ? 1 : 0);
+      u.uBerry.value = sh.berried ? 1 : 0;
       m.scale.setScalar(sh.size / 10);
       sm.setMatrixAt(a.idx, ZERO);
     }
@@ -1389,6 +1621,10 @@ const Render = (() => {
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     canvas.addEventListener('pointerdown', e => {
       drag = { x: e.clientX, y: e.clientY, b: e.button, moved: 0, shift: e.shiftKey };
+      if (deco && e.button === 0 && !deco.placing()) {
+        const id = decoPick(e.clientX, e.clientY);
+        if (id != null) { drag.deco = id; deco.onSelect(id); }
+      }
       canvas.setPointerCapture(e.pointerId);
     });
     canvas.addEventListener('pointermove', e => {
@@ -1396,6 +1632,11 @@ const Render = (() => {
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       drag.x = e.clientX; drag.y = e.clientY;
       drag.moved += Math.abs(dx) + Math.abs(dy);
+      if (drag.deco != null) {
+        const pt = groundAt(e.clientX, e.clientY), g = world && world.decorObjs.find(o => o.userData.decorId === drag.deco);
+        if (pt && g) { g.position.set(pt.x, world.surf0(pt.x, pt.z), pt.z); drag.pt = pt; if (world.decoBox) world.decoBox.update(); }
+        return;
+      }
       if (drag.b === 2 || drag.shift) {
         follow = false;
         const k = cam.dist * .0015;
@@ -1408,6 +1649,13 @@ const Render = (() => {
       }
     });
     canvas.addEventListener('pointerup', e => {
+      if (deco && drag && drag.b === 0) {
+        if (drag.deco != null && drag.pt && drag.moved >= 6) deco.onMove(drag.deco, ...decorNorm(drag.pt.x, drag.pt.z));
+        else if (drag.moved < 6 && deco.placing()) { const pt = groundAt(e.clientX, e.clientY); if (pt) deco.onPlace(...decorNorm(pt.x, pt.z)); }
+        else if (drag.moved < 6 && drag.deco == null) deco.onSelect(null);
+        drag = null;
+        return;
+      }
       if (drag && drag.moved < 6 && drag.b === 0) {
         const id = pick(e.clientX, e.clientY);
         if (onPick) onPick(id);
@@ -1462,5 +1710,5 @@ const Render = (() => {
     return [(tmpV.x + 1) / 2 * rect.width + rect.left, (1 - tmpV.y) / 2 * rect.height + rect.top];
   }
 
-  return { init, build, frame, select, setPixelScale, resetView, screenOf, portrait, get follow() { return follow; }, set follow(v) { follow = v; }, cam };
+  return { init, build, frame, select, decoMode, decoSelect, setPixelScale, resetView, screenOf, portrait, get follow() { return follow; }, set follow(v) { follow = v; }, cam };
 })();

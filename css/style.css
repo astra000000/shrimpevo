@@ -203,3 +203,10 @@ canvas#graph, canvas#hist { width: 100%; background: #08141a; border: 2px solid 
 .items-head { grid-column: 1 / -1; margin: 6px 0 0; color: #9fd0d6; }
 .pcat { margin-bottom: 4px; }
 .pcat small { display: block; color: #9fd0d6; }
+
+#decoPanel { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); width: min(920px, calc(100vw - 32px)); max-height: 40vh; overflow: auto;
+  background: rgba(10, 22, 26, .94); border: 2px solid var(--line); padding: 8px 10px; z-index: 30; font-size: 13px; }
+#decoPanel .deco-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+#decoPanel .deco-row > span { flex: 1 1 200px; }
+#decoPanel button.on { background: #2b5a4a; border-color: #ffe14d; }
+#decoPanel small { color: #9fd0d6; }

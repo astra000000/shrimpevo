@@ -219,6 +219,7 @@ const UI = (() => {
   function switchTank(i, force) {
     if (!force && i === W.cur) return;
     W.cur = Math.max(0, i);
+    if (deco) decoClose();
     shownTank = T();
     selected = null; net.clear();
     Render.select(null);
@@ -317,11 +318,12 @@ const UI = (() => {
     };
     const groups = [
       ['Nourrir', [
-        [`Granulés${left('granules')}`, () => need('granules', 'granulés')() && Sim.A.feed(W, s, 'granules')],
-        ['Légumes', () => Sim.A.feed(W, s, 'veg')],
-        [`Poudre${left('powder')}`, () => need('powder', 'poudre')() && Sim.A.feed(W, s, 'powder')]]],
+        [`Granulés${left('granules')}`, () => need('granules', 'granulés')() && (Sim.A.feed(W, s, 'granules'), Sound.plop())],
+        ['Légumes', () => (Sim.A.feed(W, s, 'veg'), Sound.plop())],
+        [`Poudre${left('powder')}`, () => need('powder', 'poudre')() && (Sim.A.feed(W, s, 'powder'), Sound.plop())]]],
       ['Eau', [['Changer l\'eau…', waterModal], ['Compléter', topOffModal], ['Siphonner', () => Sim.A.siphon(W, s)],
         ...(W.tanks.length > 1 ? [['🧫 Ensemencer…', seedModal]] : [])]],
+      ['Bac', [['🪨 Décor…', decoOpen], ...(pond ? [] : [[`🧽 Raclette${(s.glass || 0) > .3 ? ' !' : ''}`, () => Sim.A.scrape(W, s)]])]],
       ...(career() ? [['Tests', [['Bandelette', () => Economy.testStrip(W, s)], [`Gouttes${left('drops')}`, () => { const e = Economy.testDrops(W, s); if (e) toast(e, 'warn'); }]]]] : []),
       ['Soins', [...(pond ? [] : [['Nettoyer filtre', () => Sim.A.cleanFilter(W, s)]]),
         [`Anti-parasites${left('fenben')}`, () => confirm('Fenbendazole : tue hydres et planaires en 4 jours, léger stress pour les crevettes. Lancer ?') && need('fenben', 'fenbendazole')() && Sim.A.treat(W, s, 'fenben')],
@@ -362,6 +364,84 @@ const UI = (() => {
         closeModal(); refreshAll(true);
       });
     });
+  }
+
+  // ---------- Mode décor ----------
+  let lastSold = null;
+  let deco = null; // { sel: id de l'objet choisi, placing: { k } ou { plant } }
+  function decoOpen() {
+    const s = T();
+    if (!s) return;
+    Sim.ensureDecor(W, s);
+    deco = { sel: null, placing: null };
+    $('decoPanel').classList.remove('hidden');
+    Render.decoMode({
+      placing: () => !!(deco && deco.placing),
+      onSelect: id => { deco.sel = id; Render.decoSelect(id); renderDeco(); },
+      onMove: (id, x, z) => {
+        const d = s.decor.find(o => o.id === id);
+        if (d) { d.x = x; d.z = z; }
+        Render.build(s); Render.decoSelect(id);
+      },
+      onPlace: (x, z) => {
+        const p = deco.placing;
+        if (!p) return;
+        if (p.plant) {
+          (s.plantPos || (s.plantPos = {}))[p.plant] = { x, z };
+          deco.placing = null;
+        } else {
+          if (career() && !((W.inv['d_' + p.k] || 0) > 0)) { toast(`Plus de ${DECOR[p.k].name} en stock : boutique, rayon Décor.`, 'warn'); return; }
+          if (career()) W.inv['d_' + p.k]--;
+          const d = { id: s.nextDecor++, k: p.k, x, z, ry: Math.random() * 6, s: 1, seed: (Math.random() * 1e6) | 0 };
+          s.decor.push(d);
+          deco.sel = d.id;
+          if (!career() || !(W.inv['d_' + p.k] > 0)) deco.placing = null;
+        }
+        Render.build(s); Render.decoSelect(deco.sel); renderDeco();
+      },
+    });
+    renderDeco();
+  }
+  function decoClose() {
+    deco = null;
+    $('decoPanel').classList.add('hidden');
+    Render.decoMode(null);
+  }
+  function decoAct(act) {
+    const s = T(), d = s && s.decor.find(o => o.id === deco.sel);
+    if (!d) return;
+    if (act === 'rl') d.ry -= .3;
+    if (act === 'rr') d.ry += .3;
+    if (act === 'sm') d.s = Math.max(.4, (d.s || 1) - .15);
+    if (act === 'sp') d.s = Math.min(2.2, (d.s || 1) + .15);
+    if (act === 'del') {
+      s.decor = s.decor.filter(o => o !== d);
+      if (career()) W.inv['d_' + d.k] = (W.inv['d_' + d.k] || 0) + 1;
+      deco.sel = null;
+    }
+    Render.build(s); Render.decoSelect(deco.sel); renderDeco();
+  }
+  function renderDeco() {
+    const s = T();
+    if (!deco || !s) return;
+    const sel = s.decor.find(o => o.id === deco.sel);
+    const own = k => career() ? (W.inv['d_' + k] || 0) : '∞';
+    const placeable = Object.keys(s.plants).filter(k => !PLANTS[k].floating && !['moss', 'epi'].includes(PLANTS[k].look.shape));
+    const hint = deco.placing ? (deco.placing.plant ? `Clique sur le sol pour placer : ${PLANTS[deco.placing.plant].name}` : `Clique sur le sol pour poser : ${DECOR[deco.placing.k].name}`)
+      : 'Clique un objet pour le choisir, glisse-le pour le déplacer. R : tourner · Suppr : retirer · Échap : terminer';
+    $('decoPanel').innerHTML = `<div class="deco-row"><b>🪨 Décor — ${esc(s.name)}</b><span class="dimc">${esc(hint)}</span><button id="dClose">Terminer</button></div>
+      <div class="deco-row">${Object.entries(DECOR).map(([k, D]) => `<button data-dk="${k}" class="${deco.placing && deco.placing.k === k ? 'on' : ''}" title="${esc(D.desc)}">${esc(D.name)} <small>${own(k)}</small></button>`).join('')}</div>
+      ${sel ? `<div class="deco-row">Sélection : <b>${esc(DECOR[sel.k].name)}</b><button data-da="rl">↺</button><button data-da="rr">↻</button><button data-da="sm">−</button><button data-da="sp">+</button><button data-da="del">🗑 Retirer</button></div>` : ''}
+      <div class="deco-row"><span class="dimc">Massifs :</span>${placeable.map(k => `<button data-pk="${k}" class="${deco.placing && deco.placing.plant === k ? 'on' : ''}">📍 ${esc(PLANTS[k].name)}</button>`).join('') || '<span class="dimc">aucune plante à placer</span>'}</div>`;
+    const el = $('decoPanel');
+    $('dClose').onclick = decoClose;
+    el.querySelectorAll('[data-dk]').forEach(b => b.onclick = () => {
+      const k = b.dataset.dk;
+      if (career() && !((W.inv['d_' + k] || 0) > 0)) { toast(`Achète d'abord : ${DECOR[k].name} (boutique, rayon Décor).`, 'warn'); return; }
+      deco.placing = deco.placing && deco.placing.k === k ? null : { k }; renderDeco();
+    });
+    el.querySelectorAll('[data-pk]').forEach(b => b.onclick = () => { const k = b.dataset.pk; deco.placing = deco.placing && deco.placing.plant === k ? null : { plant: k }; renderDeco(); });
+    el.querySelectorAll('[data-da]').forEach(b => b.onclick = () => decoAct(b.dataset.da));
   }
 
   // ---------- Modales ----------
@@ -409,9 +489,11 @@ const UI = (() => {
         <button id="mQuit">↩ Écran titre</button>
         <button id="mHelp">❓ Aide</button>
       </div>
+      <div class="row" style="margin-top:8px">🔊 Volume <input type="range" id="mVol" min="0" max="1" step="0.05" value="${Sound.volume}" style="width:160px"></div>
       <div id="mHelpBox" class="hidden" style="font-size:13px;margin-top:10px">
         <p><b>Caméra</b> : clic gauche + glisser pour tourner, clic droit (ou Maj) pour se déplacer, molette pour zoomer. Clic sur une crevette pour sa fiche.</p>
         <p><b>Génétique</b> : les couleurs (rouge, jaune, bleu, vert, noir, blanc) sont récessives. Red × Blue donne des sauvages en F1 ; les couleurs ressortent en F2. Les bandes et le rili sont à dominance partielle, la ligne dorsale dominante. Densité, tolérances et taille dépendent de plusieurs gènes additifs.</p>
+        <p><b>Décor</b> : bouton « Décor » en bas. Choisis un objet puis clique sur le sol pour le poser ; clique un objet pour le sélectionner, glisse pour le déplacer, R pour tourner, Suppr pour le retirer. « 📍 » place un massif de plantes. Le bois donne des tanins, la lave et les roches accueillent des bactéries, la Seiryu durcit l'eau.</p>
         <p><b>Sélection</b> : onglet Sélection, filtre les crevettes, puis transfère-les dans un autre bac. Goutte-à-goutte = 3 h de jeu, presque sans choc.</p>
         <p><b>Carrière</b> : temps réel ×24 (1 h réelle = 1 jour). Les paramètres de l'eau sont inconnus tant que tu ne les testes pas (bandelette gratuite, gouttes plus précises, sondes en continu). Vends tes souches au prix que tu veux sur le marché.</p>
         <p><b>Hardcore</b> : temps réel 1:1, une seule sauvegarde. S'il ne reste aucune crevette, la partie est perdue.</p>
@@ -420,11 +502,12 @@ const UI = (() => {
       if (W.mode === 'sandbox') $('mExport').onclick = () => Save.exportFile(W);
       $('mQuit').onclick = () => { Save.store(W); closeModal(); Main.stop(); showTitle(); };
       $('mHelp').onclick = () => $('mHelpBox').classList.toggle('hidden');
+      $('mVol').oninput = e => Sound.setVolume(+e.target.value);
     });
   }
 
   // ---------- Boutique ----------
-  const SHOP_CATS = ['Bacs', 'Crevettes', 'Équipement', 'Tests', 'Eau', 'Nourriture', 'Soins', 'Plantes', 'Poissons'];
+  const SHOP_CATS = ['Bacs', 'Crevettes', 'Équipement', 'Tests', 'Eau', 'Nourriture', 'Soins', 'Plantes', 'Décor', 'Poissons'];
   function shopModal(cat = 'Bacs') {
     const s = T();
     const price = p => career() ? money(p) : 'gratuit';
@@ -440,7 +523,7 @@ const UI = (() => {
         const pc = it.plant ? PLANTS[it.plant].cat : null;
         const head = pc && pc !== lastPc ? `<h4 class="items-head">${pc}</h4>` : '';
         lastPc = pc;
-        const own = career() && (it.eq || it.tool || it.use) ? `<span class="own">Possédé : ${it.use ? (W.inv[it.use] || 0) + ' doses' : W.inv[k] || 0}${it.eq ? ` (${Economy.spare(W, k)} libre)` : ''}</span>` : '';
+        const own = career() && (it.eq || it.tool || it.use || it.deco) ? `<span class="own">Possédé : ${it.use ? (W.inv[it.use] || 0) + ' doses' : W.inv[k] || 0}${it.eq ? ` (${Economy.spare(W, k)} libre)` : ''}</span>` : '';
         const btn = it.tank ? `<button data-tank="${k}">Installer…</button>` : it.plant || it.fish ? `<button data-buy="${k}" ${s ? '' : 'disabled'}>Ajouter à ${s ? esc(s.name) : '—'}</button>` : `<button data-buy="${k}">Acheter</button>`;
         return head + `<div class="item"><span class="t">${esc(it.name)}</span><span class="d">${esc(it.desc || (it.tank ? (it.tank.env === 'pond' ? 'Dehors : saisons, pluie, gel.' : 'Éclairage LED de base inclus.') : ''))}</span>
           <span class="p">${price(it.price)}${it.tank ? ' + sol' : ''}</span>${own}<div class="row">${btn}</div></div>`;
@@ -1039,6 +1122,8 @@ const UI = (() => {
     const s = T();
     $('clock').innerHTML = `${date}Jour <b>${c.day}</b> · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${seasonOf(c.doy)}${s && s.light > 0 ? ' ☀' : ' ☾'}`;
     $('money').innerHTML = career() ? money(W.money) : '';
+    if (W.stats.sold > (lastSold ?? W.stats.sold)) Sound.coin();
+    lastSold = W.stats.sold;
   }
 
   function refreshAll(force) {
@@ -1085,6 +1170,8 @@ const UI = (() => {
     $('btnMarket').onclick = marketModal;
     $('btnBook').onclick = () => bookModal();
     $('btnBags').onclick = bagsModal;
+    $('btnSound').textContent = Sound.muted ? '🔇' : '🔊';
+    $('btnSound').onclick = () => { $('btnSound').textContent = Sound.toggle() ? '🔊' : '🔇'; };
     $('btnView').onclick = () => Render.resetView();
     $('pixSel').onchange = e => Render.setPixelScale(+e.target.value);
     $('importFile').onchange = e => {
@@ -1104,6 +1191,11 @@ const UI = (() => {
       if (e.key === ' ') { e.preventDefault(); setSpeed(speed ? 0 : 1); }
       const n = +e.key;
       if (n >= 1 && n <= 5) setSpeed(SPEEDS[n - 1]);
+      if (deco) {
+        if (e.key === 'Escape') { decoClose(); return; }
+        if (deco.sel != null && (e.key === 'Delete' || e.key === 'Backspace')) { decoAct('del'); return; }
+        if (deco.sel != null && (e.key === 'r' || e.key === 'R')) { decoAct(e.shiftKey ? 'rl' : 'rr'); return; }
+      }
       if (e.key === 'Escape') { selected = null; Render.select(null); closeModal(); }
     });
   }

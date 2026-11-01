@@ -26,6 +26,7 @@
       <button id="btnBags">📦 Colis <span id="bagCount"></span></button>
       <button id="btnView" title="Recentrer la caméra">🎥</button>
       <select id="pixSel" title="Pixelisation"><option value="2">Pixels ×2</option><option value="3" selected>Pixels ×3</option><option value="4">Pixels ×4</option><option value="5">Pixels ×5</option></select>
+      <button id="btnSound" title="Son (coupé / actif)">🔊</button>
       <button id="btnMenu">Menu</button>
     </div>
   </header>
@@ -62,6 +63,7 @@
   </aside>
   <footer id="actions"></footer>
   <div id="toasts"></div>
+  <div id="decoPanel" class="hidden"></div>
 </div>
 
 <!-- Écran titre -->
@@ -113,6 +115,7 @@
 <script src="js/render.js"></script>
 <script src="js/save.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/audio.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

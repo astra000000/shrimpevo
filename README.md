@@ -44,6 +44,12 @@ Les sauvegardes sont dans le navigateur (localStorage) : même navigateur = mêm
 - Nourriture visible : les crevettes viennent la manger.
 - Ambiance : plantes qui ondulent avec le courant du filtre, cascade à la sortie du filtre externe,
   caustiques sur le sol, particules en suspension, rayons de lumière, mues qui restent au sol.
+- Décor : bouton « Décor » (roches, Seiryu, lave, bois flotté, spider wood, cholla, abri en céramique),
+  pose et déplacement à la souris, R pour tourner, Suppr pour retirer, massifs de plantes à placer.
+  Le bois donne des tanins, la lave des bactéries, la Seiryu durcit l'eau, les abris protègent les bébés.
+- Algues sur la vitre (moins de lumière pour les plantes) : raclette gratuite. Reflets sur la vitre, ombres sous les crevettes.
+- Éclosion visible : coquilles qui tombent, nuée de bébés autour de la mère, qui ventile ses œufs.
+- Sons générés en direct (pompe, cascade, bulles, pluie, oiseaux, grillons) : bouton 🔊, volume dans le menu.
 
 ## Plusieurs bacs
 

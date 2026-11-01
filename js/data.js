@@ -176,6 +176,17 @@ const SUBSTRATES = {
   earth:   { name: 'Terre de jardin',             price: 0,  color: [.3, .22, .14],  surface: 1.3, earth: true, pond: true, desc: 'Bassin uniquement. Gratuite, un peu de tanins.' },
 };
 
+// Décor : roches et bois. surface : bactéries · tannin · calc (durcit l'eau) · biofilm · cover (abri bébés)
+const DECOR = {
+  rock:   { name: 'Roche grise', price: 4, kind: 'rock', color: [.42, .42, .4], surface: .15, desc: 'Inerte. Support pour mousses et épiphytes.' },
+  seiryu: { name: 'Pierre Seiryu', price: 6, kind: 'rock', color: [.5, .53, .56], vein: true, surface: .12, calc: .25, desc: 'Calcaire : durcit un peu l\'eau (GH/KH).' },
+  lava:   { name: 'Roche de lave', price: 5, kind: 'lava', color: [.27, .13, .11], surface: .35, desc: 'Très poreuse : bactéries et biofilm.' },
+  wood:   { name: 'Bois flotté', price: 8, kind: 'wood', color: [.36, .24, .15], surface: .2, tannin: .06, biofilm: .5, desc: 'Tanins légers, biofilm apprécié.' },
+  spider: { name: 'Racine spider wood', price: 10, kind: 'spider', color: [.55, .42, .3], surface: .2, tannin: .04, biofilm: .5, cover: .15, desc: 'Branches fines : abris et biofilm.' },
+  cholla: { name: 'Bois de cholla', price: 4, kind: 'cholla', color: [.66, .55, .38], surface: .15, tannin: .02, biofilm: .8, desc: 'Le régal des crevettes : plein de biofilm.' },
+  tube:   { name: 'Abri en céramique', price: 3, kind: 'tube', color: [.62, .33, .2], surface: .1, cover: .12, desc: 'Cachette pour les bébés et les crevettes en mue.' },
+};
+
 const WATERS = {
   tap_hard: { name: 'Robinet (dure)',            gh: 14, kh: 9,  no3: 12 },
   tap_soft: { name: 'Robinet (douce)',           gh: 6,  kh: 4,  no3: 6 },
@@ -232,10 +243,11 @@ const SHOP = {
   trap:     { cat: 'Soins', name: 'Piège à planaires', price: 15, tool: 'trap' },
   rasbora:  { cat: 'Poissons', name: 'Micro rasbora', price: 4, fish: 1 },
 };
+for (const k in DECOR) SHOP['d_' + k] = { cat: 'Décor', name: DECOR[k].name, price: DECOR[k].price, deco: k, desc: DECOR[k].desc };
 for (const k in PLANTS) SHOP['p_' + k] = { cat: 'Plantes', name: PLANTS[k].name, price: PLANTS[k].price, plant: k, desc: plantDesc(PLANTS[k]) };
 // prix du sol pour 30 L
 const SUB_PRICE = Object.fromEntries(Object.entries(SUBSTRATES).map(([k, v]) => [k, v.price]));
-const FREE_STUFF = ['Bandelettes de test', 'Thermomètre', 'Légumes blanchis', 'Eau du robinet', 'Épuisette', 'Siphon', 'Éclairage LED de base'];
+const FREE_STUFF = ['Bandelettes de test', 'Thermomètre', 'Légumes blanchis', 'Eau du robinet', 'Épuisette', 'Siphon', 'Raclette', 'Éclairage LED de base'];
 const MONEY = 'SC';  // Shrimp Coin (affiché avec la pièce en pixel art côté UI)
 const MONEY_NAME = 'Shrimp Coin';
 const START_MONEY = 400;

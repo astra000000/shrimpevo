@@ -23,7 +23,7 @@ const Main = (() => {
     if (REAL_RATE[mode]) catchUp(st, () => begin(st));
     else begin(st);
   }
-  function stop() { running = false; W = null; UI.world = null; }
+  function stop() { running = false; W = null; UI.world = null; Sound.update(null); }
 
   // Temps réel : la période d'absence est simulée d'un coup
   function catchUp(st, done) {
@@ -79,6 +79,7 @@ const Main = (() => {
     if (dtR > 0) effHps = effHps * .9 + ((want - Math.max(0, hours)) / dtR) * .1;
     UI.setEffective(effHps);
     Render.frame(UI.tank, dtR);
+    Sound.update(UI.tank, Render.cam.dist);
     UI.refreshAll(false);
     if (rate) W.realLast += (want - Math.max(0, hours)) / rate * 3.6e6;
     if (now - lastSave > 20000) { Save.store(W); lastSave = now; }
