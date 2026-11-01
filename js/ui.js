@@ -434,7 +434,8 @@ const UI = (() => {
       ${geneRow('tOpt', s.w.temp)}${geneRow('phOpt', s.w.ph)}${geneRow('ghOpt', s.w.gh)}
       <h4>Vie</h4>
       ${['size', 'life', 'fert', 'growth'].map(k => geneRow(k)).join('')}`;
-    portrait($('portrait'), g, Sim.express(sh), !!sh.berried);
+    try { Render.portrait($('portrait'), sh); }
+    catch (e) { portrait($('portrait'), g, Sim.express(sh), !!sh.berried); } // repli 2D si WebGL indisponible
     $('followBtn').onclick = () => { Render.select(sh.id, !Render.follow); renderSheet(); };
     $('closeSel').onclick = () => { selected = null; Render.select(null); renderSheet(); };
     el.querySelectorAll('.link').forEach(l => l.onclick = () => selectShrimp(+l.dataset.id));

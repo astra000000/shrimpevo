@@ -27,7 +27,8 @@ const Gen = (() => {
     const v = VARIETIES[varietyKey];
     const base = Object.assign({}, GENERA[v.genus].base, v.g);
     const g = {};
-    for (const k of GENE_KEYS) g[k] = fix(k, base[k] + gauss() * GENES[k].sd * jitter);
+    // la teinte varie peu en animalerie : une Crystal Red reste rouge
+    for (const k of GENE_KEYS) g[k] = fix(k, base[k] + gauss() * GENES[k].sd * jitter * (k === 'hue' ? .35 : 1));
     return g;
   }
 

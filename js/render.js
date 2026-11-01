@@ -13,6 +13,10 @@ const Render = (() => {
   let onPick = null;
   const cam = { yaw: .5, pitch: .25, dist: 80, target: new THREE.Vector3() };
   const MAX_SHRIMP = 1600, MAX_FISH = 40, MAX_PLAN = 200, MAX_HYDRA = 150;
+  // Niveau de détail : les crevettes proches de la caméra passent en modèle voxel
+  const VOX_MAX = 24, VOX_NEAR = 40, VOX_BUILDS = 2;
+  const voxCache = new Map(); // "id|stade" -> géométrie (ordre = LRU)
+  let voxMat = null, voxPool = [], portraitR = null;
 
   // ---------- RNG déterministe ----------
   function rng(seed) {
@@ -319,6 +323,14 @@ const Render = (() => {
     world.shrimp.frustumCulled = false;
     world.shrimp.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(world.shrimp);
+    if (!voxMat) voxMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true });
+    voxPool = [];
+    for (let i = 0; i <= VOX_MAX; i++) {
+      const m = new THREE.Mesh(new THREE.BufferGeometry(), voxMat);
+      m.visible = false; m.frustumCulled = false; m.userData.vox = true;
+      scene.add(m);
+      voxPool.push(m);
+    }
 
     // Prédateurs
     world.fish = new THREE.InstancedMesh(fishGeometry(), new THREE.MeshLambertMaterial({ color: 0xe0582c }), MAX_FISH);
@@ -636,6 +648,7 @@ const Render = (() => {
   }
 
   // ---------- Agents visuels ----------
+  const BODY_Y = .17; // hauteur du centre du corps (en longueurs de corps) : les pattes voxel touchent le sol
   function surfY(x, z) { return dims.surf(x, z); }
   function newAgent(sh) {
     let x, z;
@@ -654,10 +667,10 @@ const Render = (() => {
       const range = baby ? 2 : 6;
       let x = a.x + (Math.random() - .5) * range * 2, z = a.z + (Math.random() - .5) * range * 2;
       if (!dims.inside(x, z)) [x, z] = dims.rand();
-      a.mode = 'walk'; a.tx = x; a.tz = z; a.ty = surfY(x, z) + cm * .12;
+      a.mode = 'walk'; a.tx = x; a.tz = z; a.ty = surfY(x, z) + cm * BODY_Y;
     } else if (r < .85 || !world.anchors.length) {
       const [x, z] = dims.rand();
-      a.mode = 'swim'; a.tx = x; a.tz = z; a.ty = surfY(x, z) + cm * .12;
+      a.mode = 'swim'; a.tx = x; a.tz = z; a.ty = surfY(x, z) + cm * BODY_Y;
     } else {
       const an = world.anchors[(Math.random() * world.anchors.length) | 0];
       if (an.plant && !(UI.state && UI.state.plants[an.plant])) { a.mode = 'graze'; a.t = 2; return; }
@@ -682,20 +695,20 @@ const Render = (() => {
     const sp = a.mode === 'swim' ? (2.5 + cm * 1.2) * lazy : (.35 + cm * .25) * lazy;
     if (d < .15) {
       a.mode = 'graze'; a.t = (2 + Math.random() * 8) / lazy; a.pitch = 0;
-      if (!a.perch) a.y = surfY(a.x, a.z) + cm * .12;
+      if (!a.perch) a.y = surfY(a.x, a.z) + cm * BODY_Y;
       a.perch = false;
       return;
     }
     const st = Math.min(d, sp * dt);
     a.x += dx / d * st; a.z += dz / d * st;
-    if (a.mode === 'walk') { a.y = surfY(a.x, a.z) + cm * .12; a.swim = .05; }
+    if (a.mode === 'walk') { a.y = surfY(a.x, a.z) + cm * BODY_Y; a.swim = .05; }
     else {
       const arc = Math.sin(Math.min(1, d / 8) * Math.PI) * .6;
       a.y += dy / d * st + arc * st * .5;
       a.y = Math.min(a.y, dims.waterTop() - .5);
       a.swim = 1;
     }
-    a.y = Math.max(a.y, surfY(a.x, a.z) + cm * .1);
+    a.y = Math.max(a.y, surfY(a.x, a.z) + cm * BODY_Y);
     const ty = Math.atan2(-dz, dx);
     let dyaw = ((ty - a.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     a.yaw += dyaw * Math.min(1, dt * 4);
@@ -829,6 +842,7 @@ const Render = (() => {
       i++;
     }
     sm.count = i;
+    updateVoxels(s, sm);
     sm.instanceMatrix.needsUpdate = true;
     ga.iColor.needsUpdate = ga.iPat.needsUpdate = ga.iMisc.needsUpdate = ga.iAnim.needsUpdate = true;
     if (agents.size > live.size + 50) for (const id of agents.keys()) if (!live.has(id)) agents.delete(id);
@@ -846,6 +860,88 @@ const Render = (() => {
     } else world.marker.visible = false;
     updateCamera();
     renderer.render(scene, camera);
+  }
+
+  // Paramètres du modèle voxel selon le stade de vie (quantifiés pour réutiliser le cache)
+  function voxStage(sh) {
+    const size = sh.size, mature = Sim.isMature(sh);
+    const res = size < 5 ? 24 : size < 10 ? 32 : size < 18 ? 40 : 48;
+    const express = Math.round(Sim.express(sh) * 10) / 10;
+    const saddle = sh.sex === 'F' && mature && !sh.berried && sh.molt < 6;
+    const eggs = !!sh.berried;
+    const antenna = Math.round((.5 + .5 * Math.min(1, size / 20) + (mature && sh.sex === 'M' ? .15 : 0)) * 10) / 10;
+    const eyeScale = Math.round((1 + .4 * (1 - Math.min(1, size / 15))) * 10) / 10;
+    const sex = mature ? sh.sex : null;
+    return { k: [res, express, +saddle, +eggs, antenna, eyeScale, sex].join(), o: { g: sh.g, seed: sh.id, express, sex, saddle, eggs, antenna, eyeScale, res } };
+  }
+  function voxGeo(sh, force) {
+    const st = voxStage(sh), key = sh.id + '|' + st.k;
+    let geo = voxCache.get(key);
+    if (geo) { voxCache.delete(key); voxCache.set(key, geo); return geo; }
+    if (!force) return null;
+    geo = Voxel.build(st.o);
+    voxCache.set(key, geo);
+    return geo;
+  }
+  const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+  function updateVoxels(s, sm) {
+    const cp = camera.position, cand = [];
+    for (const sh of s.shrimp) {
+      const a = agents.get(sh.id);
+      if (!a || a.idx == null) continue;
+      const d = Math.hypot(a.x - cp.x, a.y - cp.y, a.z - cp.z);
+      if (sh.id === selectedId) cand.push([-1, sh, a]);
+      else if (d < VOX_NEAR * Math.max(.4, sh.size / 25)) cand.push([d, sh, a]);
+    }
+    cand.sort((x, y) => x[0] - y[0]);
+    let builds = 0, used = 0;
+    for (const [, sh, a] of cand) {
+      if (used >= voxPool.length) break;
+      let geo = voxGeo(sh, false);
+      if (!geo) {
+        if (builds >= VOX_BUILDS) continue;
+        geo = voxGeo(sh, true); builds++;
+      }
+      const m = voxPool[used++];
+      m.geometry = geo; m.visible = true;
+      m.position.set(a.x, a.y, a.z);
+      m.rotation.set(0, a.yaw, a.pitch + Math.sin(time * 7 + a.phase) * .05 * a.swim, 'YZX');
+      m.scale.setScalar(sh.size / 10);
+      sm.setMatrixAt(a.idx, ZERO);
+    }
+    for (let i = used; i < voxPool.length; i++) voxPool[i].visible = false;
+    if (voxCache.size > 150) {
+      const inUse = new Set(voxPool.map(m => m.geometry));
+      for (const [k, g] of voxCache) {
+        if (voxCache.size <= 110) break;
+        if (!inUse.has(g)) { g.dispose(); voxCache.delete(k); }
+      }
+    }
+  }
+
+  // Portrait voxel pour la fiche (rendu hors écran)
+  function portrait(cv, sh) {
+    if (!portraitR) {
+      const c = document.createElement('canvas');
+      const r = new THREE.WebGLRenderer({ canvas: c, antialias: false });
+      r.setPixelRatio(1); r.setSize(160, 80, false);
+      const sc = new THREE.Scene();
+      sc.background = new THREE.Color(0x0a1a1e);
+      sc.add(new THREE.HemisphereLight(0xe8f2ff, 0x404850, .85));
+      const dl = new THREE.DirectionalLight(0xffffff, .8);
+      dl.position.set(-1, 2, 2);
+      sc.add(dl);
+      const cam2 = new THREE.PerspectiveCamera(30, 2, .01, 20);
+      cam2.position.set(.35, .38, 1.55); cam2.lookAt(.22, .03, 0);
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), voxMat || (voxMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true })));
+      mesh.rotation.y = -.4;
+      sc.add(mesh);
+      portraitR = { r, c, sc, cam: cam2, mesh };
+    }
+    portraitR.mesh.geometry = voxGeo(sh, true);
+    portraitR.r.render(portraitR.sc, portraitR.cam);
+    cv.width = 160; cv.height = 80;
+    cv.getContext('2d').drawImage(portraitR.c, 0, 0);
   }
 
   function updateBubbles(s, dt, top) {
@@ -987,6 +1083,7 @@ const Render = (() => {
 
   function disposeScene() {
     scene.traverse(o => {
+      if (o.userData.vox) return; // géométries voxel en cache, matériau partagé
       if (o.geometry) o.geometry.dispose();
       if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
     });
@@ -1002,5 +1099,5 @@ const Render = (() => {
     return [(tmpV.x + 1) / 2 * rect.width + rect.left, (1 - tmpV.y) / 2 * rect.height + rect.top];
   }
 
-  return { init, build, frame, select, setPixelScale, resetView, screenOf, get follow() { return follow; }, set follow(v) { follow = v; }, cam };
+  return { init, build, frame, select, setPixelScale, resetView, screenOf, portrait, get follow() { return follow; }, set follow(v) { follow = v; }, cam };
 })();

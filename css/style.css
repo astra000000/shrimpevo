@@ -85,7 +85,7 @@ canvas#graph, canvas#hist { width: 100%; background: #08141a; border: 2px solid 
 
 /* Fiche */
 .sheet-head { display: flex; gap: 10px; align-items: center; }
-.portrait { width: 192px; height: 96px; image-rendering: pixelated; background: #0a1a1e; border: 2px solid var(--line); }
+.portrait { width: 200px; height: 100px; image-rendering: pixelated; background: #0a1a1e; border: 2px solid var(--line); }
 .gene { display: grid; grid-template-columns: 110px 1fr 48px; gap: 6px; align-items: center; font-size: 13px; }
 .gene .track { height: 8px; background: #0f2226; position: relative; }
 .gene .track > div { position: absolute; top: 0; bottom: 0; background: var(--acc); }
