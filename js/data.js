@@ -38,20 +38,57 @@ const GENERA = {
   },
 };
 
+// ---------- Génétique mendélienne ----------
+// Couleurs et motifs : un locus = 2 allèles, '+' = type sauvage.
+// rec : visible seulement en double dose · inc : dominance partielle (1 dose = moitié) · dom : 1 dose suffit
+const LOCI = [
+  { k: 'R', mut: 'r', mode: 'rec', label: 'Rouge' },
+  { k: 'Y', mut: 'y', mode: 'rec', label: 'Jaune' },
+  { k: 'B', mut: 'b', mode: 'rec', label: 'Bleu' },
+  { k: 'G', mut: 'g', mode: 'rec', label: 'Vert jade' },
+  { k: 'K', mut: 'k', mode: 'rec', label: 'Noir' },
+  { k: 'W', mut: 'w', mode: 'rec', label: 'Blanc (snowball)' },
+  { k: 'N', mut: 'N', mode: 'inc', label: 'Bandes crystal' },
+  { k: 'L', mut: 'L', mode: 'inc', label: 'Rili' },
+  { k: 'S', mut: 'S', mode: 'dom', label: 'Ligne dorsale' },
+  { k: 'M', mut: 'm', mode: 'rec', label: 'Mouchetures' },
+];
+// Traits polygéniques : n locus × 2 allèles numériques additifs.
+// mean : phénotype = moyenne des allèles (0..1) · sinon : somme des allèles ajoutée à la base du genre.
+const POLY = [
+  { k: 'dens',   n: 3, sd: .03,  init: .05, min: 0,    max: 1,   mean: true, label: 'Densité pigment' },
+  { k: 'dark',   n: 2, sd: .03,  init: .05, min: 0,    max: 1,   mean: true, label: 'Mélanine' },
+  { k: 'hueS',   n: 2, sd: 1.5,  init: 2,   min: -25,  max: 25,  label: 'Nuance' },
+  { k: 'bandW',  n: 2, sd: .03,  init: .08, min: 0,    max: 1,   mean: true, label: 'Largeur des motifs' },
+  { k: 'tOpt',   n: 4, sd: .1,   init: .35, min: -4,   max: 4,   label: 'T° optimale' },
+  { k: 'tTol',   n: 2, sd: .06,  init: .2,  min: -2.5, max: 2.5, label: 'Tolérance T°' },
+  { k: 'phOpt',  n: 3, sd: .015, init: .06, min: -.6,  max: .6,  label: 'pH optimal' },
+  { k: 'phTol',  n: 2, sd: .01,  init: .03, min: -.25, max: .4,  label: 'Tolérance pH' },
+  { k: 'ghOpt',  n: 3, sd: .12,  init: .4,  min: -3,   max: 3,   label: 'GH optimal' },
+  { k: 'ghTol',  n: 2, sd: .06,  init: .25, min: -2,   max: 2.5, label: 'Tolérance GH' },
+  { k: 'size',   n: 2, sd: .25,  init: .6,  min: -5,   max: 5,   label: 'Taille' },
+  { k: 'life',   n: 2, sd: 5,    init: 15,  min: -120, max: 150, label: 'Longévité' },
+  { k: 'fert',   n: 2, sd: .02,  init: .05, min: -.3,  max: .4,  label: 'Fertilité' },
+  { k: 'growth', n: 2, sd: .015, init: .04, min: -.3,  max: .4,  label: 'Croissance' },
+];
+// Teinte selon les pigments homozygotes présents (r rouge, y jaune, b bleu, g vert)
+const PIGMENT_HUE = { r: 356, y: 52, b: 222, g: 125, ry: 24, rb: 272, yb: 155, rg: 40, yg: 88, bg: 185 };
+
+// Souches d'animalerie : génotype de base + cibles polygéniques. price en 🐚 par individu.
 const VARIETIES = {
-  neo_wild:   { genus: 'neo', name: 'Sauvage',      g: { hue: 30,  sat: .35, dens: .45, dark: .55, stripe: .15, bands: 0, spots: .25, rili: 0 } },
-  neo_cherry: { genus: 'neo', name: 'Red Cherry',   g: { hue: 356, sat: .85, dens: .55, dark: .1,  stripe: .05, bands: 0, spots: .1,  rili: 0 } },
-  neo_orange: { genus: 'neo', name: 'Orange Sakura',g: { hue: 24,  sat: .9,  dens: .7,  dark: .05, stripe: 0,   bands: 0, spots: .05, rili: 0 } },
-  neo_yellow: { genus: 'neo', name: 'Yellow',       g: { hue: 52,  sat: .85, dens: .6,  dark: .02, stripe: .1,  bands: 0, spots: 0,   rili: 0 } },
-  neo_green:  { genus: 'neo', name: 'Green Jade',   g: { hue: 120, sat: .6,  dens: .65, dark: .2,  stripe: 0,   bands: 0, spots: .05, rili: 0 } },
-  neo_blue:   { genus: 'neo', name: 'Blue Dream',   g: { hue: 222, sat: .8,  dens: .8,  dark: .35, stripe: 0,   bands: 0, spots: 0,   rili: 0 } },
-  neo_black:  { genus: 'neo', name: 'Black Rose',   g: { hue: 0,   sat: .1,  dens: .9,  dark: .93, stripe: 0,   bands: 0, spots: 0,   rili: 0 } },
-  neo_snow:   { genus: 'neo', name: 'Snowball',     g: { hue: 40,  sat: .05, dens: .85, dark: 0,   stripe: 0,   bands: 0, spots: 0,   rili: 0 } },
-  neo_rili:   { genus: 'neo', name: 'Red Rili',     g: { hue: 356, sat: .85, dens: .75, dark: .08, stripe: 0,   bands: 0, spots: 0,   rili: .75 } },
-  car_wild:   { genus: 'car', name: 'Sauvage',      g: { hue: 200, sat: .2,  dens: .35, dark: .4,  stripe: .05, bands: .1, spots: .1, rili: .2 } },
-  car_crs:    { genus: 'car', name: 'Crystal Red',  g: { hue: 356, sat: .85, dens: .85, dark: .1,  stripe: 0,   bands: .75, spots: .05, rili: 0 } },
-  car_cbs:    { genus: 'car', name: 'Crystal Black',g: { hue: 0,   sat: 0,   dens: .9,  dark: .9,  stripe: 0,   bands: .75, spots: .05, rili: 0 } },
-  car_bolt:   { genus: 'car', name: 'Blue Bolt',    g: { hue: 205, sat: .65, dens: .95, dark: .1,  stripe: .2,  bands: 0, spots: 0,   rili: 0 } },
+  neo_wild:   { genus: 'neo', name: 'Sauvage',       loci: {},                    poly: { dens: .4 },  price: 1 },
+  neo_cherry: { genus: 'neo', name: 'Red Cherry',    loci: { R: 'rr' },           poly: { dens: .5 },  price: 3 },
+  neo_yellow: { genus: 'neo', name: 'Yellow',        loci: { Y: 'yy' },           poly: { dens: .58 }, price: 3 },
+  neo_blue:   { genus: 'neo', name: 'Blue Dream',    loci: { B: 'bb' },           poly: { dens: .78, dark: .35 }, price: 4 },
+  neo_green:  { genus: 'neo', name: 'Green Jade',    loci: { G: 'gg' },           poly: { dens: .62, dark: .25 }, price: 4 },
+  neo_orange: { genus: 'neo', name: 'Orange Sakura', loci: { R: 'rr', Y: 'yy' },  poly: { dens: .68 }, price: 5 },
+  neo_black:  { genus: 'neo', name: 'Black Rose',    loci: { K: 'kk' },           poly: { dens: .88 }, price: 6 },
+  neo_snow:   { genus: 'neo', name: 'Snowball',      loci: { W: 'ww' },           poly: { dens: .85 }, price: 5 },
+  neo_rili:   { genus: 'neo', name: 'Red Rili',      loci: { R: 'rr', L: 'LL' },  poly: { dens: .72 }, price: 6 },
+  car_wild:   { genus: 'car', name: 'Sauvage',       loci: { M: 'mm' },           poly: { dens: .35 }, price: 4 },
+  car_crs:    { genus: 'car', name: 'Crystal Red',   loci: { R: 'rr', N: 'NN' },  poly: { dens: .85, bandW: .45 }, price: 10 },
+  car_cbs:    { genus: 'car', name: 'Crystal Black', loci: { K: 'kk', N: 'NN' },  poly: { dens: .88, bandW: .45 }, price: 12 },
+  car_bolt:   { genus: 'car', name: 'Blue Bolt',     loci: { B: 'bb', S: 'SS' },  poly: { dens: .93, dark: .05, bandW: .6 }, price: 25 },
 };
 
 // r : croissance/jour, up : absorption azote (mg N/L/h à couverture 1), cover : refuge pour juvéniles
@@ -92,6 +129,54 @@ const AQUA_VOLUMES = [12, 20, 30, 60, 120, 240];
 const POND_VOLUMES = [100, 250, 500, 1000];
 
 const FISH = { name: 'Micro rasbora (Boraras)', tOpt: 25, tTol: 4, phOpt: 6.5, phTol: 1.2, ghOpt: 6, ghTol: 6 };
+
+// ---------- Boutique ----------
+// eq : équipement installable dans un bac · use : consommable (qty doses) · tool : outil permanent
+const SHOP = {
+  tank12:   { cat: 'Bacs', name: 'Aquarium 12 L', price: 30, tank: { env: 'aquarium', volume: 12 } },
+  tank20:   { cat: 'Bacs', name: 'Aquarium 20 L', price: 45, tank: { env: 'aquarium', volume: 20 } },
+  tank30:   { cat: 'Bacs', name: 'Aquarium 30 L', price: 60, tank: { env: 'aquarium', volume: 30 } },
+  tank60:   { cat: 'Bacs', name: 'Aquarium 60 L', price: 110, tank: { env: 'aquarium', volume: 60 } },
+  tank120:  { cat: 'Bacs', name: 'Aquarium 120 L', price: 190, tank: { env: 'aquarium', volume: 120 } },
+  tank240:  { cat: 'Bacs', name: 'Aquarium 240 L', price: 320, tank: { env: 'aquarium', volume: 240 } },
+  pond250:  { cat: 'Bacs', name: 'Bassin extérieur 250 L', price: 150, tank: { env: 'pond', volume: 250 } },
+  pond500:  { cat: 'Bacs', name: 'Bassin extérieur 500 L', price: 240, tank: { env: 'pond', volume: 500 } },
+  pond1000: { cat: 'Bacs', name: 'Bassin extérieur 1000 L', price: 380, tank: { env: 'pond', volume: 1000 } },
+  sponge:   { cat: 'Équipement', name: 'Filtre éponge', price: 15, eq: 'sponge', desc: 'Sûr pour les bébés.' },
+  canister: { cat: 'Équipement', name: 'Filtre externe', price: 60, eq: 'canister', desc: 'Très efficace, mais aspire les bébés sans crépine.' },
+  guard:    { cat: 'Équipement', name: 'Crépine anti-aspiration', price: 5, eq: 'guard' },
+  heater:   { cat: 'Équipement', name: 'Chauffage', price: 25, eq: 'heater' },
+  ledPro:   { cat: 'Équipement', name: 'Rampe LED pro', price: 50, eq: 'ledPro', desc: 'Intensité jusqu\'à 100 % (LED de base : 60 %).' },
+  co2:      { cat: 'Équipement', name: 'Kit CO2', price: 80, eq: 'co2' },
+  air:      { cat: 'Équipement', name: 'Bulleur', price: 10, eq: 'air' },
+  ato:      { cat: 'Équipement', name: 'Osmolateur', price: 70, eq: 'ato', desc: 'Remet de l\'eau osmosée automatiquement (nécessite l\'osmoseur).' },
+  solar:    { cat: 'Équipement', name: 'Pompe à air solaire (bassin)', price: 30, eq: 'solar' },
+  shade:    { cat: 'Équipement', name: 'Voile d\'ombrage (bassin)', price: 15, eq: 'shade' },
+  drops:    { cat: 'Tests', name: 'Kit tests en gouttes (50 tests)', price: 35, use: 'drops', qty: 50, desc: 'Mesure précise de pH, GH, KH, NH4, NO2, NO3.' },
+  probePh:  { cat: 'Tests', name: 'Sonde pH connectée', price: 90, eq: 'probePh', desc: 'pH affiché en continu pour un bac.' },
+  probeAll: { cat: 'Tests', name: 'Contrôleur multi-paramètres', price: 220, eq: 'probeAll', desc: 'Tous les paramètres en continu pour un bac.' },
+  osmo:     { cat: 'Eau', name: 'Osmoseur', price: 120, tool: 'osmo', desc: 'Débloque l\'eau osmosée pure.' },
+  saltsGH:  { cat: 'Eau', name: 'Sels GH+ (30 utilisations)', price: 12, use: 'saltsGH', qty: 30, desc: 'Osmosée + GH (Caridina).' },
+  saltsGHKH:{ cat: 'Eau', name: 'Sels GH/KH+ (30 utilisations)', price: 12, use: 'saltsGHKH', qty: 30, desc: 'Osmosée + GH + KH (Neocaridina).' },
+  bacteria: { cat: 'Eau', name: 'Bactéries en bouteille', price: 15, use: 'bacteria', qty: 1, desc: 'Accélère le cyclage d\'un bac neuf.' },
+  granules: { cat: 'Nourriture', name: 'Granulés (60 portions)', price: 8, use: 'granules', qty: 60 },
+  powder:   { cat: 'Nourriture', name: 'Poudre bébés (40 portions)', price: 10, use: 'powder', qty: 40 },
+  fenben:   { cat: 'Soins', name: 'Fenbendazole (3 traitements)', price: 20, use: 'fenben', qty: 3 },
+  trap:     { cat: 'Soins', name: 'Piège à planaires', price: 15, tool: 'trap' },
+  p_moss:   { cat: 'Plantes', name: 'Mousse de Java', price: 8, plant: 'moss' },
+  p_hygro:  { cat: 'Plantes', name: 'Hygrophila', price: 6, plant: 'hygro' },
+  p_vallis: { cat: 'Plantes', name: 'Vallisnérie', price: 6, plant: 'vallis' },
+  p_anubias:{ cat: 'Plantes', name: 'Anubias', price: 12, plant: 'anubias' },
+  p_egeria: { cat: 'Plantes', name: 'Élodée dense', price: 4, plant: 'egeria' },
+  p_lemna:  { cat: 'Plantes', name: 'Lentilles d\'eau', price: 2, plant: 'lemna' },
+  rasbora:  { cat: 'Poissons', name: 'Micro rasbora', price: 4, fish: 1 },
+};
+// prix du sol pour 30 L
+const SUB_PRICE = { sand: 6, gravel: 6, black: 8, soil: 25, earth: 0 };
+const FREE_STUFF = ['Bandelettes de test', 'Thermomètre', 'Légumes blanchis', 'Eau du robinet', 'Épuisette', 'Siphon', 'Éclairage LED de base'];
+const MONEY = '🐚';
+const START_MONEY = 400;
+const BREEDERS = ['CrevetteMania', 'Tom_Aqua', 'ShrimpLab69', 'Les Bacs de Léa', 'Neo&Co', 'BeeKeeper', 'AquaNico', 'Caridinette', 'PetitBacPerso', 'GhostShrimp_fr', 'Mamie Aquariophile', 'Le Crevettier'];
 
 const SEASONS = [
   { name: 'Hiver', from: 355 }, { name: 'Printemps', from: 79 }, { name: 'Été', from: 172 }, { name: 'Automne', from: 265 },

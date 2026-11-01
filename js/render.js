@@ -248,9 +248,12 @@ const Render = (() => {
   }
 
   // ---------- Construction de la scène ----------
+  let curTank = null;
   function build(s) {
     if (world) disposeScene();
     scene = new THREE.Scene();
+    curTank = s;
+    if (!s) { scene.background = new THREE.Color(0x0d1117); dims = null; return; }
     agents.clear(); fishAgents = []; planAgents = []; hydraSpots = [];
     const R = rng(s.seed || 1);
     const aq = s.env === 'aquarium';
@@ -673,7 +676,7 @@ const Render = (() => {
       a.mode = 'swim'; a.tx = x; a.tz = z; a.ty = surfY(x, z) + cm * BODY_Y;
     } else {
       const an = world.anchors[(Math.random() * world.anchors.length) | 0];
-      if (an.plant && !(UI.state && UI.state.plants[an.plant])) { a.mode = 'graze'; a.t = 2; return; }
+      if (an.plant && !(curTank && curTank.plants[an.plant])) { a.mode = 'graze'; a.t = 2; return; }
       a.mode = 'swim';
       a.tx = an.x + (Math.random() - .5) * 2; a.tz = an.z + (Math.random() - .5) * 2;
       a.ty = Math.min(dims.waterTop() - 1, an.y + (Math.random() - .3) * 3);
@@ -737,7 +740,8 @@ const Render = (() => {
   // ---------- Mise à jour par frame ----------
   const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpE = new THREE.Euler(0, 0, 0, 'YZX'), tmpV = new THREE.Vector3(), tmpS = new THREE.Vector3();
   function frame(s, dtReal) {
-    if (!world) return;
+    if (!world) { if (scene) renderer.render(scene, camera); return; }
+    curTank = s;
     time += dtReal;
     const aq = world.aq, w = s.w;
     const dt = Math.min(dtReal, .1);
@@ -756,10 +760,10 @@ const Render = (() => {
       const dusk = L > 0 && L < .35;
       sunCol = dusk ? new THREE.Color(1, .7, .45) : L > 0 ? new THREE.Color(1, .97, .9) : new THREE.Color(.35, .45, .8);
       ambCol = L > 0 ? new THREE.Color(.6, .68, .78) : new THREE.Color(.2, .25, .45);
-      const night = new THREE.Color(0x0b1224), day = new THREE.Color(s.weather.rain > s.t ? 0x8c97a3 : 0x87b8de), sunset = new THREE.Color(0xe39a6a);
+      const night = new THREE.Color(0x0b1224), day = new THREE.Color(s._wx && s._wx.rain > s.t ? 0x8c97a3 : 0x87b8de), sunset = new THREE.Color(0xe39a6a);
       world.sky.copy(night).lerp(day, Math.min(1, L * 2.2));
       if (dusk) world.sky.lerp(sunset, (1 - L / .35) * .45);
-      world.rain.visible = s.weather.rain > s.t;
+      world.rain.visible = !!(s._wx && s._wx.rain > s.t);
       if (world.rain.visible) {
         const p = world.rain.geometry.attributes.position;
         for (let i = 0; i < p.count; i++) { let y = p.getY(i) - dt * 80; if (y < dims.waterTop()) y += 120; p.setY(i, y); }
@@ -875,7 +879,8 @@ const Render = (() => {
     return { k: [res, express, +saddle, +eggs, antenna, eyeScale, sex].join(), o: { g: sh.g, seed: sh.id, express, sex, saddle, eggs, antenna, eyeScale, res } };
   }
   function voxGeo(sh, force) {
-    const st = voxStage(sh), key = sh.id + '|' + st.k;
+    const g = sh.g;
+    const st = voxStage(sh), key = [sh.id, st.k, g.hue.toFixed(0), g.dens.toFixed(2), g.bands.toFixed(2), g.stripe.toFixed(2), g.rili.toFixed(2)].join('|');
     let geo = voxCache.get(key);
     if (geo) { voxCache.delete(key); voxCache.set(key, geo); return geo; }
     if (!force) return null;

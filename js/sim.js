@@ -1,5 +1,6 @@
 'use strict';
-// Simulation : chimie de l'eau, cycle de l'azote, plantes, crevettes, prédateurs, événements.
+// Simulation : un monde (temps, météo, courant, joueur) contient plusieurs bacs.
+// Chaque bac : chimie de l'eau, cycle de l'azote, plantes, crevettes, prédateurs.
 // Unités : temps en heures de jeu, concentrations en mg/L, réserves de nourriture en mg.
 
 const Sim = (() => {
@@ -8,21 +9,22 @@ const Sim = (() => {
   const CAP = 1500;
   const BABY = 7, JUV = 9, NEWBORN = 4.5;
   const TAU = Math.PI * 2;
+  const DRIP_HOURS = 3;
 
-  // ---------- Calendrier ----------
-  function calendar(s) {
-    const total = s.start.hour + s.t;
+  // ---------- Calendrier / climat ----------
+  function calendar(W) {
+    const total = W.start.hour + W.t;
     const dayIdx = Math.floor(total / 24);
     const hour = total - dayIdx * 24;
-    const doyRaw = s.start.doy + dayIdx;
-    return { day: Math.floor(s.t / 24) + 1, hour, doy: doyRaw % 365, year: Math.floor(doyRaw / 365) + 1 };
+    const doyRaw = W.start.doy + dayIdx;
+    return { day: Math.floor(W.t / 24) + 1, hour, doy: doyRaw % 365, year: Math.floor(doyRaw / 365) + 1 };
   }
-  function roomTemp(s, c) {
-    return 20.5 + 1.5 * Math.cos(TAU * (c.doy - 200) / 365) + .8 * Math.sin(TAU * (c.hour - 8) / 24) + (s.weather.heat > s.t ? 6 : 0);
+  function roomTemp(W, c) {
+    return 20.5 + 1.5 * Math.cos(TAU * (c.doy - 200) / 365) + .8 * Math.sin(TAU * (c.hour - 8) / 24) + (W.weather.heat > W.t ? 6 : 0);
   }
-  function airTemp(s, c) {
+  function airTemp(W, c) {
     return 12.5 - 8.5 * Math.cos(TAU * (c.doy - 20) / 365) + 5 * Math.sin(TAU * (c.hour - 9) / 24)
-      + (s.weather.heat > s.t ? 8 : 0) - (s.weather.cold > s.t ? 9 : 0) - (s.weather.rain > s.t ? 3 : 0);
+      + (W.weather.heat > W.t ? 8 : 0) - (W.weather.cold > W.t ? 9 : 0) - (W.weather.rain > W.t ? 3 : 0);
   }
   function o2Sat(T) { return 14.6 - .39 * T + .007 * T * T; }
   function nh3Of(w) {
@@ -30,64 +32,76 @@ const Sim = (() => {
     return w.tan / (1 + Math.pow(10, pKa - w.ph));
   }
 
-  function log(s, msg, kind = 'info', toast = false) {
-    s.log.push({ t: s.t, msg, kind });
-    if (s.log.length > 400) s.log.splice(0, s.log.length - 400);
-    if (toast) (s._toasts || (s._toasts = [])).push({ msg, kind });
-    if (toast && kind === 'bad') s._alarm = true;
+  function log(W, msg, kind = 'info', toast = false, tank = null) {
+    if (tank && W.tanks.length > 1) msg = `[${tank.name}] ${msg}`;
+    W.log.push({ t: W.t, msg, kind });
+    if (W.log.length > 500) W.log.splice(0, W.log.length - 500);
+    if (toast) (W._toasts || (W._toasts = [])).push({ msg, kind });
+    if (toast && kind === 'bad') W._alarm = true;
   }
+  const tankById = (W, id) => W.tanks.find(t => t.id === id);
 
   // ---------- Création ----------
-  function makeShrimp(s, genus, g, o = {}) {
+  function makeShrimp(W, genus, dna, o = {}) {
     return {
-      id: s.nextId++, genus, g, sex: o.sex || (rnd() < .5 ? 'F' : 'M'),
+      id: W.nextId++, genus, dna, g: Gen.express(dna, genus), sex: o.sex || (rnd() < .5 ? 'F' : 'M'),
       age: o.age ?? 0, size: o.size ?? 1.8, health: o.health ?? 1, hunger: .3,
       molt: o.molt ?? (2 + rnd() * 6), berried: null, gen: o.gen ?? 0,
-      mom: o.mom ?? null, dad: o.dad ?? null, born: s.t, kids: 0,
+      mom: o.mom ?? null, dad: o.dad ?? null, born: W.t, kids: 0, strain: o.strain ?? null,
     };
   }
-  function storeShrimp(s, vkey) {
-    const g = Gen.makeGenome(vkey);
-    const sh = makeShrimp(s, VARIETIES[vkey].genus, g, { age: 60 + rnd() * 90, size: g.size * (.78 + rnd() * .17), molt: rnd() * 8 });
+  function storeShrimp(W, vkey) {
+    const dna = Gen.strainDNA(vkey);
+    const g = Gen.express(dna, VARIETIES[vkey].genus);
+    const sh = makeShrimp(W, VARIETIES[vkey].genus, dna, { age: 60 + rnd() * 90, size: g.size * (.78 + rnd() * .17), molt: rnd() * 8, strain: 'shop:' + vkey });
     sh.origin = VARIETIES[vkey].name;
     return sh;
   }
 
-  function newGame(cfg) {
+  function newWorld(cfg) {
     const now = new Date();
     const realDoy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 864e5) % 365;
-    const hc = cfg.mode === 'hardcore';
-    const startDoy = hc ? realDoy : ({ spring: 100, summer: 180, autumn: 270, winter: 350 }[cfg.season] ?? 100);
-    const startHour = hc ? now.getHours() + now.getMinutes() / 60 : 9;
+    const real = cfg.mode !== 'sandbox';
+    const W = {
+      v: 2, mode: cfg.mode, created: Date.now(), realLast: Date.now(), t: 0,
+      seed: (rnd() * 1e9) | 0,
+      start: real ? { doy: realDoy, hour: now.getHours() + now.getMinutes() / 60 } : { doy: ({ spring: 100, summer: 180, autumn: 270, winter: 350 }[cfg.season] ?? 100), hour: 9 },
+      cfg: { events: cfg.mode === 'sandbox' ? cfg.events : true, mutRate: cfg.mode === 'sandbox' ? cfg.mutRate : 1 },
+      weather: { rain: 0, rainI: 1, heat: 0, cold: 0 }, power: true, powerUntil: 0,
+      tanks: [], cur: 0, nextId: 1, nextTank: 1,
+      log: [], stats: { born: 0, dead: {}, maxGen: 0, mutations: 0, sold: 0, earned: 0 }, over: false,
+      money: cfg.mode === 'career' ? START_MONEY : Infinity, inv: {}, bags: [], transfers: [],
+      bestiary: [], strainStats: {}, listings: [], market: null, nextUid: 1,
+    };
+    if (cfg.tank) newTank(W, cfg.tank);
+    return W;
+  }
+
+  // cfg : { name, env, volume, substrate, water, plants, mature, eq, fish, shrimp: { variété: n } }
+  function newTank(W, cfg) {
     const src = WATERS[cfg.water];
     const sub = SUBSTRATES[cfg.substrate];
+    const id = W.nextTank++;
     const s = {
-      v: 1, mode: cfg.mode, env: cfg.env, created: Date.now(), realLast: Date.now(), t: 0,
-      seed: (Math.random() * 1e9) | 0,
-      start: { doy: startDoy, hour: startHour },
-      cfg: { volume: cfg.volume, substrate: cfg.substrate, water: cfg.water, events: hc ? true : cfg.events, mutRate: hc ? 1 : cfg.mutRate },
+      id, name: cfg.name || `${cfg.env === 'pond' ? 'Bassin' : 'Bac'} ${id}`, env: cfg.env, seed: (rnd() * 1e9) | 0,
+      cfg: { volume: cfg.volume, substrate: cfg.substrate, water: cfg.water },
       w: { temp: 20, gh: src.gh, kh: src.kh, ph: 7, tan: 0, no2: 0, no3: src.no3, o2: 8, co2: 3, tannin: sub.earth ? .2 : 0, level: 1 },
       pools: { food: 0, veg: 0, powder: 0, det: 0, biofilm: 0 },
       algae: .03, bactA: 1e-4, bactB: 1e-4,
       soilCap: sub.soil ? 1 : 0, soilLeach: sub.soil ? 1 : sub.earth ? .5 : 0,
       plants: {},
-      eq: Object.assign({ filter: 'none', clog: 0, heater: false, target: 24, co2: false, light: 8, intensity: .8, air: false, ato: false, shade: false }, cfg.eq || {}),
-      power: true, powerUntil: 0, heaterStuck: false,
-      weather: { rain: 0, rainI: 1, heat: 0, cold: 0 }, disease: 0,
-      shrimp: [], nextId: 1,
-      pred: { hydra: 0, plan: 0, fish: cfg.fish || 0, fishHealth: 1, fishHunger: .3 },
-      treat: { fenben: 0, trap: 0 },
-      log: [], hist: [], lastHist: -24,
-      stats: { born: 0, dead: {}, maxGen: 0, mutations: 0 },
-      over: false, light: 0,
+      eq: Object.assign({ filter: 'none', clog: 0, heater: false, target: 24, co2: false, light: 8, intensity: .6, air: false, ato: false, shade: false, ledPro: false, probePh: false, probeAll: false }, cfg.eq || {}),
+      heaterStuck: false, disease: 0,
+      shrimp: [], pred: { hydra: 0, plan: 0, fish: cfg.fish || 0, fishHealth: 1, fishHunger: .3 },
+      treat: { fenben: 0, trap: 0 }, hist: [], lastHist: -24, tests: {}, seen: {},
+      t: W.t, power: true, light: 0,
     };
-    const c = calendar(s);
-    s.w.temp = cfg.env === 'aquarium' ? (s.eq.heater ? s.eq.target : roomTemp(s, c)) : airTemp(s, c);
+    W.tanks.push(s);
+    s._W = W;
+    const c = calendar(W);
+    s.w.temp = cfg.env === 'aquarium' ? (s.eq.heater ? s.eq.target : roomTemp(W, c)) : airTemp(W, c);
     s.w.o2 = o2Sat(s.w.temp);
-    for (const p of cfg.plants) {
-      s.plants[p] = .2;
-      hitchhikers(s, true);
-    }
+    for (const p of cfg.plants || []) { s.plants[p] = .2; hitchhikers(W, s, true); }
     s.pools.biofilm = s.cfg.volume * (cfg.mature ? 3 : .3);
     if (cfg.mature) {
       const Kb = bactCap(s);
@@ -95,15 +109,16 @@ const Sim = (() => {
       s.soilLeach = 0;
       for (const p in s.plants) s.plants[p] = .45;
     }
-    for (const [vk, n] of Object.entries(cfg.shrimp)) for (let i = 0; i < n; i++) s.shrimp.push(storeShrimp(s, vk));
-    log(s, `Bac mis en eau : ${cfg.volume} L, ${sub.name}, ${src.name}.`, 'info');
-    if (!cfg.mature) log(s, "Bac neuf : le cycle de l'azote n'est pas fait. Surveille l'ammoniac et les nitrites !", 'warn', true);
+    for (const [vk, n] of Object.entries(cfg.shrimp || {})) for (let i = 0; i < n; i++) s.shrimp.push(storeShrimp(W, vk));
+    for (const sh of s.shrimp) s.seen[Gen.colorClass(sh.g)] = 1;
+    log(W, `${s.name} mis en eau : ${cfg.volume} L, ${sub.name}, ${src.name}.`, 'info');
+    if (!cfg.mature) log(W, "Bac neuf : le cycle de l'azote n'est pas fait. Surveille l'ammoniac et les nitrites !", 'warn', true, s);
     return s;
   }
 
-  function hitchhikers(s, silent) {
-    if (rnd() < .15) { s.pred.hydra += 2; if (!silent) log(s, 'Des hydres sont peut-être arrivées avec les plantes…', 'warn'); }
-    if (rnd() < .15) { s.pred.plan += 2; if (!silent) log(s, 'Des planaires sont peut-être arrivées avec les plantes…', 'warn'); }
+  function hitchhikers(W, s, silent) {
+    if (rnd() < .15) { s.pred.hydra += 2; if (!silent) log(W, 'Des hydres sont peut-être arrivées avec les plantes…', 'warn', false, s); }
+    if (rnd() < .15) { s.pred.plan += 2; if (!silent) log(W, 'Des planaires sont peut-être arrivées avec les plantes…', 'warn', false, s); }
   }
 
   function bactCap(s) {
@@ -115,63 +130,83 @@ const Sim = (() => {
   }
 
   // ---------- Événements ----------
-  function events(s, c, dt) {
-    const aq = s.env === 'aquarium';
-    if (!s.power && s.t >= s.powerUntil) { s.power = true; log(s, '⚡ Courant rétabli.', 'info', true); }
-    if (s.eq.filter !== 'none' && aq) s.eq.clog = Math.min(1, s.eq.clog + dt / (24 * 50));
-    if (s.weather.rain > 0 && s.weather.rain <= s.t && s.weather.rain > s.t - dt) log(s, '🌤 Fin de la pluie.', 'info');
-    if (!s.cfg.events) {
-      if (!aq) rainCheck(s, c, dt);
-      return;
-    }
-    const f = s.mode === 'hardcore' ? 1.5 : 1;
-    if (s.power && rnd() < dt / (24 * 75) * f && (aq || s.eq.air)) {
+  function worldEvents(W, c, dt) {
+    if (!W.power && W.t >= W.powerUntil) { W.power = true; log(W, '⚡ Courant rétabli.', 'info', true); }
+    const hasPond = W.tanks.some(t => t.env === 'pond');
+    if (W.weather.rain > 0 && W.weather.rain <= W.t && W.weather.rain > W.t - dt && hasPond) log(W, '🌤 Fin de la pluie.', 'info');
+    rainCheck(W, c, dt, hasPond);
+    if (!W.cfg.events) return;
+    const f = W.mode === 'hardcore' ? 1.5 : 1;
+    if (W.power && W.tanks.length && rnd() < dt / (24 * 75) * f) {
       const h = 2 + rnd() * 10;
-      s.power = false; s.powerUntil = s.t + h;
-      log(s, `⚡ Coupure de courant (~${Math.round(h)} h) : filtre, chauffage et CO2 à l'arrêt !`, 'bad', true);
+      W.power = false; W.powerUntil = W.t + h;
+      log(W, `⚡ Coupure de courant (~${Math.round(h)} h) : filtres, chauffages et CO2 à l'arrêt !`, 'bad', true);
     }
+    if (c.doy > 165 && c.doy < 240 && W.weather.heat <= W.t && rnd() < dt / (24 * 25)) {
+      W.weather.heat = W.t + 24 * (3 + rnd() * 4);
+      log(W, '☀️ Canicule ! La température de la pièce et de l\'air monte.', 'warn', true);
+    }
+    if (hasPond && (c.doy > 335 || c.doy < 60) && W.weather.cold <= W.t && rnd() < dt / (24 * 20)) {
+      W.weather.cold = W.t + 24 * (3 + rnd() * 3);
+      log(W, '❄️ Vague de froid.', 'warn', true);
+    }
+  }
+  function tankEvents(W, s, dt) {
+    const aq = s.env === 'aquarium';
+    if (s.eq.filter !== 'none' && aq) s.eq.clog = Math.min(1, s.eq.clog + dt / (24 * 50));
+    if (!W.cfg.events) return;
+    const f = W.mode === 'hardcore' ? 1.5 : 1;
     if (aq && s.eq.heater && !s.heaterStuck && rnd() < dt / (24 * 240) * f) {
       s.heaterStuck = true;
-      log(s, '🔥 Le chauffage est bloqué en marche ! La température grimpe. Remplace-le.', 'bad', true);
+      log(W, '🔥 Le chauffage est bloqué en marche ! La température grimpe. Remplace-le.', 'bad', true, s);
     }
-    if (c.doy > 165 && c.doy < 240 && s.weather.heat <= s.t && rnd() < dt / (24 * 25)) {
-      s.weather.heat = s.t + 24 * (3 + rnd() * 4);
-      log(s, '☀️ Canicule ! La température de la pièce et de l\'air monte.', 'warn', true);
-    }
-    if (!aq && (c.doy > 335 || c.doy < 60) && s.weather.cold <= s.t && rnd() < dt / (24 * 20)) {
-      s.weather.cold = s.t + 24 * (3 + rnd() * 3);
-      log(s, '❄️ Vague de froid sur le bassin.', 'warn', true);
-    }
-    if (!aq) rainCheck(s, c, dt);
     const org = (s.pools.food + s.pools.det) / (s.cfg.volume * s.w.level);
-    if (s.disease <= s.t && s.shrimp.length > 10 && rnd() < dt / (24 * 160) * f * (1 + org / 3 + s.w.no3 / 40)) {
-      s.disease = s.t + 24 * 5;
+    if (s.disease <= W.t && s.shrimp.length > 10 && rnd() < dt / (24 * 160) * f * (1 + org / 3 + s.w.no3 / 40)) {
+      s.disease = W.t + 24 * 5;
       for (const sh of s.shrimp) if (rnd() < .2) sh.health -= .2;
-      log(s, '🦠 Infection bactérienne ! Les crevettes affaiblies sont en danger. Changements d\'eau et siphonnage aident.', 'bad', true);
+      log(W, '🦠 Infection bactérienne ! Les crevettes affaiblies sont en danger. Changements d\'eau et siphonnage aident.', 'bad', true, s);
     }
-    if (rnd() < dt / (24 * 400) * f) { s.pred.plan += 2; log(s, 'Quelques planaires sont apparues (œufs dormants ?).', 'warn'); }
+    if (rnd() < dt / (24 * 400) * f) { s.pred.plan += 2; log(W, 'Quelques planaires sont apparues (œufs dormants ?).', 'warn', false, s); }
   }
-  function rainCheck(s, c, dt) {
-    if (s.weather.rain > s.t) return;
+  function rainCheck(W, c, dt, hasPond) {
+    if (W.weather.rain > W.t) return;
     const season = seasonOf(c.doy);
     const p = season === 'Été' ? 1 / (24 * 8) : season === 'Printemps' ? 1 / (24 * 4) : 1 / (24 * 3);
     if (rnd() < p * dt) {
-      s.weather.rain = s.t + 2 + rnd() * 10;
-      s.weather.rainI = .5 + rnd() * 1.5;
-      log(s, s.weather.rainI > 1.4 ? '🌧 Grosse averse sur le bassin.' : '🌦 Il pleut.', 'info');
+      W.weather.rain = W.t + 2 + rnd() * 10;
+      W.weather.rainI = .5 + rnd() * 1.5;
+      if (hasPond) log(W, W.weather.rainI > 1.4 ? '🌧 Grosse averse sur le bassin.' : '🌦 Il pleut.', 'info');
     }
   }
 
   // ---------- Pas de simulation ----------
-  function step(s, dt) {
-    const c = calendar(s);
+  function step(W, dt) {
+    const c = calendar(W);
+    worldEvents(W, c, dt);
+    W.t += dt;
+    for (const s of W.tanks) stepTank(W, s, c, dt);
+    processTransfers(W);
+    stepBags(W, c, dt);
+    if (typeof Economy !== 'undefined') Economy.tick(W, dt);
+    const alive = W.tanks.some(t => t.shrimp.length) || W.bags.some(b => b.shrimp.length) || W.transfers.length;
+    if (!alive && !W.over && W.stats.born + Object.keys(W.stats.dead).length > 0) {
+      W.over = true;
+      log(W, '☠️ Il ne reste plus aucune crevette.', 'bad', true);
+    }
+    if (alive) W.over = false;
+  }
+
+  function stepTank(W, s, c, dt) {
+    s._W = W;
+    s.t = W.t;
+    s.power = W.power;
+    s._wx = W.weather;
+    tankEvents(W, s, dt);
     const aq = s.env === 'aquarium';
     const w = s.w, eq = s.eq, P = s.pools;
     const sub = SUBSTRATES[s.cfg.substrate];
-    events(s, c, dt);
-    s.t += dt;
     const V = s.cfg.volume * w.level;
-    const power = s.power;
+    const power = W.power;
 
     // Lumière
     let light;
@@ -180,7 +215,7 @@ const Sim = (() => {
       const dl = 12 + 4 * Math.cos(TAU * (c.doy - 172) / 365);
       const x = (c.hour - (12 - dl / 2)) / dl;
       light = x > 0 && x < 1 ? Math.sin(Math.PI * x) : 0;
-      if (s.weather.rain > s.t) light *= .45;
+      if (W.weather.rain > W.t) light *= .45;
       if (eq.shade) light *= .6;
     }
     s.light = light;
@@ -189,7 +224,7 @@ const Sim = (() => {
 
     // Température
     let envT, k;
-    const air = aq ? roomTemp(s, c) : airTemp(s, c);
+    const air = aq ? roomTemp(W, c) : airTemp(W, c);
     s.air = air;
     if (aq) {
       envT = air + (light > 0 ? .6 : 0);
@@ -212,7 +247,7 @@ const Sim = (() => {
     if (aq) {
       const f = FILTERS[eq.filter];
       exch = .04 + (power ? f.flow * (1 - .7 * eq.clog) : 0) + (eq.air && power ? .25 : 0);
-    } else exch = (.1 + (eq.air && power ? .2 : 0)) * (ice ? .2 : 1);
+    } else exch = (.1 + (eq.air ? .2 : 0)) * (ice ? .2 : 1);
 
     // Plantes
     const N = w.tan + w.no3 / 4.4;
@@ -312,10 +347,9 @@ const Sim = (() => {
     o2cons += adultEq * .008 * mT / V;
     s.algae = Math.max(.01, s.algae - adultEq / V * .01 / 24 * dt);
 
-    // Poissons (eau, faim)
+    // Poissons (faim)
     const pr = s.pred;
     if (pr.fish > 0) {
-      const fT = Gen.fitRange(FISH.tOpt, FISH.tTol, w.temp, 1), fP = Gen.fitRange(FISH.phOpt, FISH.phTol, w.ph, .2);
       pr.fishHunger = clamp(pr.fishHunger + .03 * dt * mT, 0, 1);
       const got = take('food', pr.fish * .3 * dt * pr.fishHunger);
       pr.fishHunger = Math.max(0, pr.fishHunger - got / (pr.fish * .6));
@@ -346,9 +380,9 @@ const Sim = (() => {
       if (ice) evap = 0;
       const nl = Math.max(.3, w.level - evap * dt);
       concentrate(s, w.level / nl); w.level = nl;
-      if (aq && eq.ato && power && w.level < .985) topOff(s, 'ro', true);
-      if (!aq && s.weather.rain > s.t) {
-        const add = .006 * dt * s.weather.rainI;
+      if (aq && eq.ato && power && w.level < .985) topOff(W, s, 'ro', true);
+      if (!aq && W.weather.rain > W.t) {
+        const add = .006 * dt * W.weather.rainI;
         mixIn(s, RAIN, add / (w.level + add), null);
         w.level = Math.min(1, w.level + add);
         w.temp -= .1 * dt;
@@ -364,15 +398,15 @@ const Sim = (() => {
       no2: Math.max(0, w.no2 - .2) / 1,
       no3: Math.max(0, w.no3 - 40) / 80,
       o2: Math.max(0, 3.5 - w.o2) / 2.5,
-      med: s.treat.fenben > s.t ? .12 : 0,
+      med: s.treat.fenben > W.t ? .12 : 0,
       level: w.level < .6 ? (.6 - w.level) * 3 : 0,
       crowd: Math.max(0, adultEq / V - 8) / 10,
     };
     const toxSum = tox.nh3 + tox.no2 + tox.no3 + tox.o2 + tox.med + tox.level + tox.crowd;
     s.toxSum = toxSum;
-    const sick = s.disease > s.t;
+    const sick = s.disease > W.t;
     const planMolt = Math.min(.12, pr.plan / (V * 20));
-    // densité : au-delà de ~2 crevettes adultes/L, les femelles pondent de moins en moins
+    // densité : au-delà de ~3 crevettes/L, les femelles pondent de moins en moins
     const dens = shrimp.length / V;
     const crowdBreed = clamp(1 - (dens - 3) / 5, .05, 1);
     const babyCrowd = .003 * Math.max(0, dens - 4);
@@ -389,7 +423,6 @@ const Sim = (() => {
       const r = Math.min(1, (baby ? rb : ra) * vig * Math.sqrt(sh.health + .2));
       sh.hunger = clamp(sh.hunger - sh._e * r + .012 * dt * mT, 0, 1);
       const fit = Gen.fitness(g, w);
-      sh._fit = fit;
       let stress = (1 - fit.all) + toxSum * (baby ? 1.4 : 1) + (sick && sh.health < .5 ? .25 : 0);
       let dmg = 0;
       if (stress > .35) dmg += (stress - .35) * .025 * Math.max(.12, mT);
@@ -423,7 +456,7 @@ const Sim = (() => {
           if (list && list.length && rnd() < .85 * crowdBreed) {
             const dad = list[(rnd() * list.length) | 0];
             const n = Math.round(GENERA[sh.genus].clutch * g.fert * Gen.fertCost(g) * (sh.size / 25) ** 2 * (.5 + .5 * sh.health) * (.8 + .4 * rnd()));
-            if (n > 0) sh.berried = { days: GENERA[sh.genus].gestation, n, dadG: Object.assign({}, dad.g), dadId: dad.id, dadGen: dad.gen };
+            if (n > 0) sh.berried = { days: GENERA[sh.genus].gestation, n, dadDna: dad.dna, dadId: dad.id, dadGen: dad.gen, dadStrain: dad.strain };
           }
         }
       }
@@ -431,27 +464,31 @@ const Sim = (() => {
       if (sh.berried) {
         const b = sh.berried;
         b.days -= dt / 24 * Math.pow(mT, .8);
-        if (stress > .9 && rnd() < .01 * dt) { sh.berried = null; log(s, `#${sh.id} a lâché ses œufs (stress).`, 'warn'); }
+        if (stress > .9 && rnd() < .01 * dt) { sh.berried = null; log(W, `#${sh.id} a lâché ses œufs (stress).`, 'warn', false, s); }
         else if (b.days <= 0) {
           let born = 0;
+          const strain = sh.strain && sh.strain === b.dadStrain ? sh.strain : null;
           for (let i = 0; i < b.n; i++) {
             if (shrimp.length + newborn.length >= CAP) break;
-            const { g: cg, muts } = Gen.child(g, b.dadG, s.cfg.mutRate);
-            const kid = makeShrimp(s, sh.genus, cg, { gen: Math.max(sh.gen, b.dadGen) + 1, mom: sh.id, dad: b.dadId, health: .9 });
+            const { dna, muts } = Gen.cross(sh.dna, b.dadDna, W.cfg.mutRate);
+            const kid = makeShrimp(W, sh.genus, dna, { gen: Math.max(sh.gen, b.dadGen) + 1, mom: sh.id, dad: b.dadId, health: .9, strain });
             newborn.push(kid);
             born++;
-            if (muts.length) {
-              s.stats.mutations++;
-              const m = muts[0];
-              if (['stripe', 'bands', 'spots', 'rili'].includes(m.k) && m.dir > 0 && cg[m.k] > .35)
-                log(s, `🧬 Mutation chez #${kid.id} : ${GENES[m.k].label} apparaît !`, 'mut', true);
-              else if (rnd() < .3) log(s, `🧬 Mutation chez #${kid.id} : ${GENES[m.k].label} ${m.dir > 0 ? '↑' : '↓'}`, 'mut');
+            if (muts.length) W.stats.mutations++;
+            const cls = Gen.colorClass(kid.g);
+            if (strain) {
+              const ss = W.strainStats[strain] || (W.strainStats[strain] = { n: 0, cls: {} });
+              ss.n++; ss.cls[cls] = (ss.cls[cls] || 0) + 1;
+            }
+            if (!s.seen[cls]) {
+              s.seen[cls] = 1;
+              log(W, `✨ Nouveau phénotype : ${cls} (#${kid.id}, fille de #${sh.id}) !`, 'mut', true, s);
             }
           }
           sh.kids += born;
-          s.stats.born += born;
-          if (born < b.n) log(s, `Surpopulation : ${b.n - born} bébés n'ont pas survécu.`, 'warn');
-          if (born) log(s, `🥚 #${sh.id} a libéré ${born} bébés.`, 'birth');
+          W.stats.born += born;
+          if (born < b.n) log(W, `Surpopulation : ${b.n - born} bébés n'ont pas survécu.`, 'warn', false, s);
+          if (born) log(W, `🥚 #${sh.id} a libéré ${born} bébés.`, 'birth', false, s);
           sh.berried = null;
         }
       }
@@ -488,15 +525,15 @@ const Sim = (() => {
       const logi = (x, r, cap) => clamp(x + x * r * (r > 0 ? Math.max(0, 1 - x / cap) : 1) * dt, 0, cap);
       pr.hydra = logi(pr.hydra, .012 * pw / (pw + .3) + .02 * nb.length / (nb.length + 15) + .004 * org / (org + 2) - .004, V * 3);
       pr.plan = logi(pr.plan, .008 * org / (org + 4) - .003, V * 2);
-      if (s.treat.fenben > s.t) { pr.hydra *= Math.exp(-.05 * dt); pr.plan *= Math.exp(-.05 * dt); }
-      if (s.treat.trap > s.t) pr.plan *= Math.exp(-.012 * dt);
+      if (s.treat.fenben > W.t) { pr.hydra *= Math.exp(-.05 * dt); pr.plan *= Math.exp(-.05 * dt); }
+      if (s.treat.trap > W.t) pr.plan *= Math.exp(-.012 * dt);
       if (pr.hydra < .5) pr.hydra = 0;
       if (pr.plan < .5) pr.plan = 0;
       if (pr.fish > 0) {
         const fT = Gen.fitRange(FISH.tOpt, FISH.tTol, w.temp, 1), fP = Gen.fitRange(FISH.phOpt, FISH.phTol, w.ph, .2);
         const fs = (1 - fT * fP) + toxSum + (pr.fishHunger > .9 ? .5 : 0);
         if (fs > .4) pr.fishHealth -= (fs - .4) * .02 * dt; else pr.fishHealth = Math.min(1, pr.fishHealth + .01 * dt);
-        if (pr.fishHealth <= 0) { pr.fish--; pr.fishHealth = .7; log(s, '🐟 Un micro rasbora est mort.', 'warn'); }
+        if (pr.fishHealth <= 0) { pr.fish--; pr.fishHealth = .7; log(W, '🐟 Un micro rasbora est mort.', 'warn', false, s); }
       }
     }
 
@@ -506,25 +543,21 @@ const Sim = (() => {
       for (const [sh, cause] of dead) {
         if (ds.has(sh)) continue;
         ds.add(sh);
-        s.stats.dead[cause] = (s.stats.dead[cause] || 0) + 1;
+        W.stats.dead[cause] = (W.stats.dead[cause] || 0) + 1;
         // les cadavres sont en partie mangés par les autres crevettes
         P.food += (sh.size / 25) ** 3 * 12; P.det += (sh.size / 25) ** 3 * 6;
       }
       s.shrimp = shrimp.filter(sh => !ds.has(sh));
-      if (dead.length >= 5) log(s, `💀 ${dead.length} crevettes mortes (${dead[0][1]}…)`, 'bad');
-      else for (const [sh, cause] of dead) if (sh.size >= BABY) log(s, `💀 #${sh.id} est morte : ${cause}.`, 'dead');
+      if (dead.length >= 5) log(W, `💀 ${dead.length} crevettes mortes (${dead[0][1]}…)`, 'bad', false, s);
+      else for (const [sh, cause] of dead) if (sh.size >= BABY) log(W, `💀 #${sh.id} est morte : ${cause}.`, 'dead', false, s);
     }
     if (newborn.length) {
-      for (const kid of newborn) s.stats.maxGen = Math.max(s.stats.maxGen, kid.gen);
+      for (const kid of newborn) W.stats.maxGen = Math.max(W.stats.maxGen, kid.gen);
       s.shrimp.push(...newborn);
     }
-    for (const sh of s.shrimp) { delete sh._e; }
+    for (const sh of s.shrimp) delete sh._e;
 
-    if (s.t - s.lastHist >= 24) { s.lastHist = s.t; sample(s); }
-    if (!s.shrimp.length && !s.over && s.stats.born + Object.keys(s.stats.dead).length > 0) {
-      s.over = true;
-      log(s, '☠️ La colonie s\'est éteinte.', 'bad', true);
-    }
+    if (W.t - s.lastHist >= 24) { s.lastHist = W.t; sample(s); }
   }
 
   function isMature(sh) { return sh.size >= .72 * sh.g.size && sh.age > 45; }
@@ -595,21 +628,89 @@ const Sim = (() => {
     return { n, juv, adults, berried, F, M, genus, mean, sd, rgb: n ? [r / n, g / n, b / n] : [0, 0, 0] };
   }
 
-  function advance(s, hours) {
+  function advance(W, hours) {
     let rem = hours;
-    while (rem > 1e-9) { const dt = Math.min(1, rem); step(s, dt); rem -= dt; }
+    while (rem > 1e-9) { const dt = Math.min(1, rem); step(W, dt); rem -= dt; }
   }
 
-  // ---------- Actions du joueur ----------
+  // ---------- Transferts, acclimatation, sacs ----------
+  const waterOf = s => ({ gh: s.w.gh, kh: s.w.kh, ph: s.w.ph, temp: s.w.temp });
+  // Retire des crevettes d'un bac (ou d'un sac) et les met en acclimatation vers un autre bac
+  function startTransfer(W, list, src, toId, method, label) {
+    if (!list.length) return null;
+    const tr = { id: W.nextUid++, shrimp: list, src, to: toId, method, end: W.t + (method === 'drip' ? DRIP_HOURS : .05), label };
+    for (const sh of list) sh.listed = null;
+    W.transfers.push(tr);
+    const to = tankById(W, toId);
+    log(W, `🥅 ${list.length} crevette(s) ${method === 'drip' ? 'en acclimatation au goutte-à-goutte' : 'transférées directement'} vers ${to ? to.name : '?'}.`);
+    return tr;
+  }
+  function netFromTank(W, tank, ids, toId, method) {
+    const set = new Set(ids);
+    const list = tank.shrimp.filter(sh => set.has(sh.id));
+    tank.shrimp = tank.shrimp.filter(sh => !set.has(sh.id));
+    return startTransfer(W, list, waterOf(tank), toId, method, tank.name);
+  }
+  function processTransfers(W) {
+    for (const tr of W.transfers.slice()) {
+      if (tr.end > W.t) continue;
+      W.transfers.splice(W.transfers.indexOf(tr), 1);
+      const to = tankById(W, tr.to);
+      if (!to) continue;
+      const d = to.w;
+      const shock = Math.abs(tr.src.gh - d.gh) / 4 + Math.abs(tr.src.ph - d.ph) / .7 + Math.abs(tr.src.temp - d.temp) / 5;
+      const f = (tr.method === 'drip' ? .12 : 1) * shock;
+      let died = 0, molts = 0;
+      for (const sh of tr.shrimp) {
+        sh.health -= f * .3 * (sh.size < BABY ? 1.4 : 1) * (.6 + .8 * rnd());
+        if (sh.health <= 0) { died++; W.stats.dead['choc (acclimatation)'] = (W.stats.dead['choc (acclimatation)'] || 0) + 1; continue; }
+        if (f > .4 && rnd() < .5) { sh.molt = Math.min(sh.molt, .2); molts++; }
+        to.shrimp.push(sh);
+        to.seen[Gen.colorClass(sh.g)] = 1;
+      }
+      const msg = `Arrivée dans ${to.name} : ${tr.shrimp.length - died}/${tr.shrimp.length} en forme` + (died ? `, ${died} mortes du choc` : '') + (molts ? `, ${molts} mues déclenchées` : '') + ` (écart : GH ${Math.abs(tr.src.gh - d.gh).toFixed(1)}, pH ${Math.abs(tr.src.ph - d.ph).toFixed(2)}, ${Math.abs(tr.src.temp - d.temp).toFixed(1)} °C).`;
+      log(W, msg, died ? 'warn' : 'info', true);
+    }
+  }
+  // Sac de transport : l'eau refroidit vers la pièce, après 3 jours les crevettes souffrent
+  function addBag(W, list, water, label) {
+    const bag = { id: W.nextUid++, shrimp: list, water: Object.assign({}, water), t0: W.t, label };
+    W.bags.push(bag);
+    log(W, `📦 Colis reçu : ${label} (${list.length} crevettes). Acclimate-les vite !`, 'info', true);
+    return bag;
+  }
+  function stepBags(W, c, dt) {
+    const room = roomTemp(W, c);
+    for (const bag of W.bags) {
+      bag.water.temp += (room - bag.water.temp) * (1 - Math.exp(-.3 * dt));
+      if (W.t - bag.t0 > 72) for (const sh of bag.shrimp) sh.health -= .02 * dt;
+      const before = bag.shrimp.length;
+      bag.shrimp = bag.shrimp.filter(sh => sh.health > 0);
+      if (bag.shrimp.length < before) {
+        W.stats.dead['oubliée dans le sac'] = (W.stats.dead['oubliée dans le sac'] || 0) + before - bag.shrimp.length;
+        log(W, `📦 ${before - bag.shrimp.length} crevette(s) mortes dans le colis « ${bag.label} ».`, 'bad', true);
+      }
+    }
+    W.bags = W.bags.filter(b => b.shrimp.length);
+  }
+  function bagToTank(W, bag, ids, toId, method) {
+    const set = ids ? new Set(ids) : null;
+    const list = bag.shrimp.filter(sh => !set || set.has(sh.id));
+    bag.shrimp = bag.shrimp.filter(sh => set && !set.has(sh.id));
+    W.bags = W.bags.filter(b => b.shrimp.length);
+    return startTransfer(W, list, bag.water, toId, method, bag.label);
+  }
+
+  // ---------- Actions sur un bac ----------
   function V0(s) { return s.cfg.volume; }
   const A = {
-    feed(s, type) {
+    feed(W, s, type) {
       const v = V0(s);
-      if (type === 'granules') { s.pools.food += v * 1; log(s, 'Nourriture : granulés.'); }
-      if (type === 'veg') { s.pools.veg += v * 2; log(s, 'Nourriture : légumes blanchis.'); }
-      if (type === 'powder') { s.pools.powder += v * .4; log(s, 'Nourriture : poudre pour bébés.'); }
+      if (type === 'granules') { s.pools.food += v * 1; log(W, 'Nourriture : granulés.', 'info', false, s); }
+      if (type === 'veg') { s.pools.veg += v * 2; log(W, 'Nourriture : légumes blanchis.', 'info', false, s); }
+      if (type === 'powder') { s.pools.powder += v * .4; log(W, 'Nourriture : poudre pour bébés.', 'info', false, s); }
     },
-    waterChange(s, pct, srcKey) {
+    waterChange(W, s, pct, srcKey) {
       const w = s.w, src = WATERS[srcKey];
       const p = pct / 100;
       const t = s.env === 'aquarium' ? w.temp - 2 : 14;
@@ -617,7 +718,7 @@ const Sim = (() => {
       mixIn(s, src, p, t);
       w.level = 1;
       s.pools.food *= 1 - p * .5; s.pools.powder *= 1 - p * .5; s.pools.det *= 1 - p * .3;
-      if (s.disease > s.t) s.disease -= 24 * p * 2;
+      if (s.disease > W.t) s.disease -= 24 * p * 2;
       const shock = dG / 3 + dT / 4;
       if (shock > .3) {
         let molts = 0;
@@ -625,42 +726,45 @@ const Sim = (() => {
           sh.health -= shock * .15 * (sh.size < BABY ? 1.5 : 1);
           if (rnd() < shock * .5) { sh.molt = 0; molts++; }
         }
-        log(s, `Changement d'eau ${pct}% : choc (ΔGH ${dG.toFixed(1)}, ΔT ${dT.toFixed(1)}°C), ${molts} mues déclenchées !`, 'warn', true);
-      } else log(s, `Changement d'eau ${pct}% (${src.name}).`);
+        log(W, `Changement d'eau ${pct}% : choc (ΔGH ${dG.toFixed(1)}, ΔT ${dT.toFixed(1)}°C), ${molts} mues déclenchées !`, 'warn', true, s);
+      } else log(W, `Changement d'eau ${pct}% (${src.name}).`, 'info', false, s);
     },
-    siphon(s) {
+    siphon(W, s) {
       s.pools.det *= .35; s.pools.food *= .5; s.pools.veg *= .5;
       s.pred.plan *= .85; s.pred.hydra *= .95;
-      A.waterChange(s, 10, s.cfg.water);
-      log(s, 'Siphonnage du sol.');
+      A.waterChange(W, s, 10, s.cfg.water);
+      log(W, 'Siphonnage du sol.', 'info', false, s);
     },
-    topOff(s, srcKey) { topOff(s, srcKey, false); },
-    cleanFilter(s) {
+    topOff(W, s, srcKey) { topOff(W, s, srcKey, false); },
+    cleanFilter(W, s) {
       s.eq.clog = 0; s.bactA *= .85; s.bactB *= .85; s.pools.det *= .8;
-      log(s, 'Filtre nettoyé (dans l\'eau du bac, on garde les bactéries).');
+      log(W, 'Filtre nettoyé (dans l\'eau du bac, on garde les bactéries).', 'info', false, s);
     },
-    fixHeater(s) { s.heaterStuck = false; log(s, 'Chauffage remplacé.', 'info', true); },
-    treat(s, kind) {
-      if (kind === 'fenben') { s.treat.fenben = s.t + 96; log(s, '💊 Traitement anti-hydres/planaires (fenbendazole) pendant 4 jours. Léger stress pour les crevettes.', 'warn', true); }
-      if (kind === 'trap') { s.treat.trap = s.t + 72; log(s, 'Piège à planaires installé pour 3 jours.'); }
+    fixHeater(W, s) { s.heaterStuck = false; log(W, 'Chauffage remplacé.', 'info', true, s); },
+    treat(W, s, kind) {
+      if (kind === 'fenben') { s.treat.fenben = W.t + 96; log(W, '💊 Traitement anti-hydres/planaires (fenbendazole) pendant 4 jours. Léger stress pour les crevettes.', 'warn', true, s); }
+      if (kind === 'trap') { s.treat.trap = W.t + 72; log(W, 'Piège à planaires installé pour 3 jours.', 'info', false, s); }
     },
-    addShrimp(s, vk, n) {
-      for (let i = 0; i < n; i++) s.shrimp.push(storeShrimp(s, vk));
-      if (s.over && s.shrimp.length) s.over = false;
-      log(s, `+${n} ${GENERA[VARIETIES[vk].genus].short} ${VARIETIES[vk].name}.`);
+    addShrimp(W, s, vk, n) {
+      for (let i = 0; i < n; i++) { const sh = storeShrimp(W, vk); s.shrimp.push(sh); s.seen[Gen.colorClass(sh.g)] = 1; }
+      log(W, `+${n} ${GENERA[VARIETIES[vk].genus].short} ${VARIETIES[vk].name}.`, 'info', false, s);
     },
-    addPlant(s, key) {
+    addPlant(W, s, key) {
       s.plants[key] = Math.min(1, (s.plants[key] || 0) + .15);
-      hitchhikers(s, false);
-      log(s, `Plante ajoutée : ${PLANTS[key].name}.`);
+      hitchhikers(W, s, false);
+      log(W, `Plante ajoutée : ${PLANTS[key].name}.`, 'info', false, s);
     },
-    fish(s, d) {
+    fish(W, s, d) {
       s.pred.fish = Math.max(0, s.pred.fish + d);
-      log(s, d > 0 ? `+${d} micro rasbora.` : 'Un micro rasbora retiré.');
+      log(W, d > 0 ? `+${d} micro rasbora.` : 'Un micro rasbora retiré.', 'info', false, s);
     },
-    setEq(s, k, v) { s.eq[k] = v; },
+    addBacteria(W, s) {
+      const Kb = bactCap(s);
+      s.bactA = Math.max(s.bactA, Kb * .3); s.bactB = Math.max(s.bactB, Kb * .3);
+      log(W, 'Bactéries ajoutées : le cycle va beaucoup plus vite.', 'info', false, s);
+    },
   };
-  function topOff(s, srcKey, silent) {
+  function topOff(W, s, srcKey, silent) {
     const w = s.w, src = WATERS[srcKey];
     const p = 1 - w.level;
     if (p <= 0) return;
@@ -669,8 +773,23 @@ const Sim = (() => {
     w.no3 = w.no3 * w.level + src.no3 * p;
     w.tan *= w.level; w.no2 *= w.level; w.tannin *= w.level;
     w.level = 1;
-    if (!silent) log(s, `Niveau complété (${src.name}).`);
+    if (!silent) log(W, `Niveau complété (${src.name}).`, 'info', false, s);
   }
 
-  return { newGame, step, advance, calendar, popStats, isMature, express, nh3Of, A, CAP, BABY, bactCap, log };
+  // Relie les références après chargement d'une sauvegarde
+  function relink(W) {
+    for (const s of W.tanks) {
+      s._W = W; s._wx = W.weather; s.t = W.t;
+      for (const sh of s.shrimp) if (!sh.g) sh.g = Gen.express(sh.dna, sh.genus);
+    }
+    for (const b of W.bags) for (const sh of b.shrimp) if (!sh.g) sh.g = Gen.express(sh.dna, sh.genus);
+    for (const tr of W.transfers) for (const sh of tr.shrimp) if (!sh.g) sh.g = Gen.express(sh.dna, sh.genus);
+    if (W.money === null) W.money = Infinity; // Infinity devient null en JSON
+    return W;
+  }
+
+  return {
+    newWorld, newTank, step, advance, calendar, popStats, isMature, express, nh3Of, A, CAP, BABY, bactCap, log,
+    makeShrimp, storeShrimp, startTransfer, netFromTank, addBag, bagToTank, tankById, relink, roomTemp, waterOf, DRIP_HOURS,
+  };
 })();

@@ -63,7 +63,8 @@ const STAGES = [
     desc: "La vieille carapace laissée après la mue. Un GH trop bas ou trop haut et la mue échoue : c'est la première cause de mort chez les Caridina." },
 ];
 
-const EXTRA = { car_green: { genus: 'car', name: 'Green Bee (ton image)', g: { hue: 138, sat: .75, dens: .88, dark: .45, stripe: 0, bands: .75, spots: .05, rili: 0 } } };
+const EXTRA = { car_green: { genus: 'car', name: 'Green Bee (ton image)', loci: { G: 'gg', N: 'NN' }, poly: { dens: .88, dark: .45, bandW: .45 }, price: 0 } };
+Object.assign(VARIETIES, EXTRA);
 const $ = id => document.getElementById(id);
 let variety = 'car_crs', genome = null, seed = 7, stage = 'female', overview = false, spin = true, pixel = 2;
 
@@ -184,8 +185,7 @@ function renderInfo() {
 function setVariety(v) {
   variety = v;
   if (v !== 'mutant') {
-    const src = VARIETIES[v] || EXTRA[v];
-    genome = Object.assign({}, GENERA[src.genus].base, src.g);
+    genome = Gen.express(Gen.strainDNA(v, 0), VARIETIES[v].genus);
   }
   rebuild();
 }
@@ -203,7 +203,7 @@ function mutant() {
 }
 
 // ---------- UI ----------
-$('variety').innerHTML = Object.entries(Object.assign({}, EXTRA, VARIETIES)).map(([k, v]) => `<option value="${k}">${GENERA[v.genus].short} ${v.name}</option>`).join('') + '<option value="mutant">Mutante</option>';
+$('variety').innerHTML = Object.entries(VARIETIES).map(([k, v]) => `<option value="${k}">${GENERA[v.genus].short} ${v.name}</option>`).join('') + '<option value="mutant">Mutante</option>';
 $('variety').value = variety;
 $('variety').onchange = e => e.target.value === 'mutant' ? mutant() : setVariety(e.target.value);
 $('mutant').onclick = mutant;

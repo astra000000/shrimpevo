@@ -150,6 +150,44 @@ canvas#graph, canvas#hist { width: 100%; background: #08141a; border: 2px solid 
 .mlist { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .mlist button { text-align: left; }
 
+/* Carrière : barre des bacs, argent, boutique, marché, bestiaire */
+#money { font-family: var(--title); color: #ffd76a; font-size: 14px; white-space: nowrap; }
+#top { gap: 10px; }
+.top-right button { padding: 3px 7px; font-size: 13px; }
+#tankbar { position: fixed; top: 40px; left: 0; right: 0; height: 34px; display: flex; gap: 4px; align-items: center; padding: 0 10px; background: rgba(10, 22, 26, .7); border-bottom: 2px solid var(--line); z-index: 5; overflow-x: auto; }
+#tankbar button { font-size: 13px; padding: 2px 9px; white-space: nowrap; }
+#tankbar .tr { color: var(--warn); font-size: 12px; margin-left: 8px; white-space: nowrap; }
+.panel { top: 82px; }
+#toasts { top: 84px; }
+#noTank { position: fixed; inset: 82px 360px 74px 290px; display: flex; align-items: center; justify-content: center; text-align: center; z-index: 3; }
+.modal-box.wide { width: min(1100px, 96vw); }
+.shop-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.shop-tabs button { font-size: 13px; }
+.items { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+.item { border: 2px solid var(--line); padding: 8px; display: flex; flex-direction: column; gap: 4px; background: var(--panel2); }
+.item .t { font-weight: 600; }
+.item .d { font-size: 12px; color: var(--dim); flex: 1; }
+.item .p { color: #ffd76a; }
+.item .own { font-size: 12px; color: var(--acc); }
+.item .row { margin: 0; }
+.item canvas { width: 160px; height: 80px; image-rendering: pixelated; border: 2px solid var(--line); align-self: center; }
+.free { font-size: 12px; color: var(--acc); margin-bottom: 8px; }
+.trend { border: 2px solid #ffd76a; color: #ffd76a; padding: 4px 8px; margin-bottom: 8px; font-size: 14px; }
+.book { display: grid; grid-template-columns: 260px 1fr; gap: 12px; min-height: 360px; }
+.book-list { border-right: 2px solid var(--line); padding-right: 8px; max-height: 70vh; overflow-y: auto; }
+.book-list div { padding: 4px 6px; cursor: pointer; display: flex; gap: 6px; align-items: center; font-size: 14px; }
+.book-list div.on, .book-list div:hover { background: #163a36; }
+.book-list small { color: var(--dim); }
+.book-detail canvas { width: 320px; height: 160px; image-rendering: pixelated; border: 2px solid var(--line); }
+.book-detail input, .book-detail textarea { width: 100%; background: #0f1e22; border: 2px solid var(--line); color: var(--txt); font: inherit; padding: 4px; }
+.book-detail textarea { min-height: 80px; }
+.netlist { max-height: 300px; overflow-y: auto; font-size: 13px; border: 2px solid var(--line); margin: 6px 0; }
+.netlist div { display: grid; grid-template-columns: 18px 14px 1fr auto; gap: 6px; align-items: center; padding: 2px 4px; cursor: pointer; }
+.netlist div:hover { background: #163a36; }
+.netlist .sw { width: 12px; height: 12px; }
+.tested { color: var(--dim); font-size: 11px; }
+.qty { width: 52px; }
+
 @media (max-width: 900px) {
   .panel { width: 46vw !important; bottom: 120px; }
   #setupForm { grid-template-columns: 1fr; }
