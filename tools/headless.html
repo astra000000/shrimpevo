@@ -1,0 +1,46 @@
+<!doctype html><meta charset="utf-8"><title>Headless</title>
+<body style="background:#111;color:#cfc;font:12px monospace"><pre id="o"></pre>
+<script>
+// Test de la simulation sans rendu : headless.html?sc=aqua&days=300 (scripts rechargés sans cache)
+(async () => {
+for (const f of ['data', 'genetics', 'sim']) {
+  const code = await (await fetch(`../js/${f}.js`, { cache: 'no-store' })).text();
+  const el = document.createElement('script'); el.textContent = code; document.head.appendChild(el);
+}
+const q = new URLSearchParams(location.search);
+const days = +q.get('days') || 200, sc = q.get('sc') || 'aqua';
+const cfgs = {
+  aqua: { mode: 'normal', env: 'aquarium', volume: 30, substrate: 'sand', water: 'tap_soft', plants: ['moss', 'hygro'], mature: true,
+          eq: { filter: 'sponge', heater: true, target: 24, light: 8 }, shrimp: { neo_cherry: 10, neo_blue: 6 }, fish: 0, events: true, mutRate: 1 },
+  fish: { mode: 'normal', env: 'aquarium', volume: 60, substrate: 'black', water: 'tap_soft', plants: ['moss'], mature: true,
+          eq: { filter: 'sponge', heater: true, target: 24, light: 8 }, shrimp: { neo_wild: 10, neo_cherry: 10, neo_yellow: 10 }, fish: 6, events: true, mutRate: 1 },
+  pond: { mode: 'normal', env: 'pond', volume: 500, substrate: 'earth', water: 'tap_soft', plants: ['egeria', 'lemna'], mature: true, season: 'spring',
+          eq: {}, shrimp: { neo_wild: 20, neo_cherry: 10 }, fish: 0, events: true, mutRate: 1 },
+  newtank: { mode: 'normal', env: 'aquarium', volume: 30, substrate: 'soil', water: 'ro_gh', plants: ['moss'], mature: false,
+          eq: { filter: 'sponge', heater: true, target: 22, light: 8 }, shrimp: { car_crs: 10 }, fish: 0, events: false, mutRate: 1 },
+};
+const out = [];
+const t0 = performance.now();
+const s = Sim.newGame(cfgs[sc]);
+for (let d = 1; d <= days; d++) {
+  if (sc !== 'pond') { Sim.A.feed(s, 'granules'); if (d % 7 === 0) Sim.A.waterChange(s, 20, s.cfg.water); }
+  // joueur attentif
+  if (s.heaterStuck) Sim.A.fixHeater(s);
+  if (s.w.level < .85) Sim.A.topOff(s, 'tap_soft');
+  if ((s.pred.hydra > 20 || s.pred.plan > 20) && s.treat.fenben < s.t) Sim.A.treat(s, 'fenben');
+  if (s.w.no2 > .3 || s.w.no3 > 35) Sim.A.waterChange(s, 30, s.cfg.water);
+  Sim.advance(s, 24);
+  if (d % 20 === 0 || d <= 3 || (sc === 'newtank' && d % 4 === 0 && d < 40)) {
+    const st = Sim.popStats(s), w = s.w, m = st.mean;
+    const dd = {}; for (const k in s.stats.dead) { const x = s.stats.dead[k] - ((window._pd || {})[k] || 0); if (x) dd[k] = x; }
+    window._pd = Object.assign({}, s.stats.dead);
+    out.push(`   morts: ${JSON.stringify(dd)} crowd=${(s.crowd||0).toFixed(1)} tox=${(s.toxSum||0).toFixed(2)} food=${(s.pools.food/s.cfg.volume).toFixed(1)}`);
+    out.push(`J${d} n=${st.n} ad=${st.adults} juv=${st.juv} ber=${st.berried} gen=${s.stats.maxGen} | T=${w.temp.toFixed(1)} pH=${w.ph.toFixed(2)} GH=${w.gh.toFixed(1)} KH=${w.kh.toFixed(1)} NH3=${(s.nh3||0).toFixed(3)} NO2=${w.no2.toFixed(2)} NO3=${w.no3.toFixed(0)} O2=${w.o2.toFixed(1)} bio=${(s.pools.biofilm/s.cfg.volume).toFixed(1)} | tOpt=${(m.tOpt||0).toFixed(1)}±${(m.tTol||0).toFixed(1)} dens=${(m.dens||0).toFixed(2)} hyd=${s.pred.hydra.toFixed(0)} pla=${s.pred.plan.toFixed(0)} fish=${s.pred.fish}`);
+  }
+}
+const mo = {}; for (const sh of s.shrimp) { const k = Gen.phenotype(sh.g); mo[k] = (mo[k] || 0) + 1; }
+out.push('phénotypes: ' + JSON.stringify(Object.entries(mo).sort((a, b) => b[1] - a[1]).slice(0, 8)));
+out.push('morts: ' + JSON.stringify(s.stats.dead), 'nés: ' + s.stats.born + ' mutations: ' + s.stats.mutations, 'temps: ' + Math.round(performance.now() - t0) + ' ms');
+document.getElementById('o').textContent = out.join('\n');
+})();
+</script>
