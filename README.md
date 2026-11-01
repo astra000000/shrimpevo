@@ -42,6 +42,8 @@ Les sauvegardes sont dans le navigateur (localStorage) : même navigateur = mêm
 - Cycle de l'azote affiché (phase, avancement, temps restant estimé) ; ensemencement depuis un bac mûr
   (seau d'eau, jus du filtre, substrat + mousse — ce dernier peut amener planaires et hydres).
 - Nourriture visible : les crevettes viennent la manger.
+- Ambiance : plantes qui ondulent avec le courant du filtre, cascade à la sortie du filtre externe,
+  caustiques sur le sol, particules en suspension, rayons de lumière, mues qui restent au sol.
 
 ## Plusieurs bacs
 

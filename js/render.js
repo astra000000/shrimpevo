@@ -259,7 +259,7 @@ const Render = (() => {
     const aq = s.env === 'aquarium';
     const vol = s.cfg.volume;
     const sub = SUBSTRATES[s.cfg.substrate];
-    world = { aq, R, plants: {}, anchors: [], moss: [], equip: {} };
+    world = { aq, R, plants: {}, anchors: [], moss: [], equip: {}, fx: fxUniforms(), exu: [] };
 
     if (aq) {
       const L = Math.cbrt(vol * 1000 / .3), W = L * .5, H = L * .6;
@@ -269,6 +269,7 @@ const Render = (() => {
       dims.rand = (r = Math.random) => [(r() - .5) * (L - 3), (r() - .5) * (W - 3)];
       dims.waterTop = () => H * .93 * s.w.level;
       scene.background = new THREE.Color(0x0d1117);
+      world.fx.uFloor.value = 2.5; world.fx.uSpan.value = H * .85;
       buildAquarium(s, R, sub);
       cam.target.set(0, H * .4, 0); cam.dist = L * 1.5; cam.pitch = .18; cam.yaw = .35;
     } else {
@@ -279,6 +280,7 @@ const Render = (() => {
       dims.inside = (x, z) => Math.hypot(x, z) < Rr * .9;
       dims.rand = (r = Math.random) => { const a = r() * Math.PI * 2, d = Math.sqrt(r()) * Rr * .82; return [Math.cos(a) * d, Math.sin(a) * d]; };
       dims.waterTop = () => D * s.w.level;
+      world.fx.uFloor.value = 2; world.fx.uSpan.value = D * .8;
       buildPond(s, R, sub);
       cam.target.set(0, D * .5, 0); cam.dist = Rr * 2.6; cam.pitch = .75; cam.yaw = .3;
     }
@@ -292,7 +294,7 @@ const Render = (() => {
 
     // Rochers
     const rockMat = new THREE.MeshLambertMaterial({ color: 0x6b6b66, flatShading: true });
-    world.rockMat = rockMat;
+    world.rockMat = causticMat(rockMat);
     const nRocks = aq ? 3 + (R() * 3 | 0) : 7;
     for (let i = 0; i < nRocks; i++) {
       const [x, z] = dims.rand(R);
@@ -309,6 +311,7 @@ const Render = (() => {
     for (let i = 0; i < 4; i++) { const [x, z] = dims.rand(R); world.moss.push({ x, z, y: dims.surf(x, z), r: 3 }); }
 
     buildPlants(s, R);
+    buildMotes();
 
     // Crevettes (un seul InstancedMesh)
     const sg = shrimpGeometry();
@@ -370,7 +373,7 @@ const Render = (() => {
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
     g.computeVertexNormals();
-    return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    return new THREE.Mesh(g, causticMat(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
   }
 
   function buildAquarium(s, R, sub) {
@@ -441,7 +444,35 @@ const Render = (() => {
     eqp.co2 = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, .5, 10), new THREE.MeshLambertMaterial({ color: 0xccddee, transparent: true, opacity: .8 }));
     eqp.co2.position.set(L / 2 - 7, H * .25, -W / 2 + .8);
     eqp.co2.rotation.x = Math.PI / 2;
-    for (const k of ['sponge', 'canister', 'heater', 'air', 'co2']) scene.add(eqp[k]);
+    // sortie du filtre externe : tuyau qui déverse une petite cascade
+    const ox = L / 2 - 9, oz = -W / 2 + 1.6, oy = H * .93 + 1.4;
+    eqp.outlet = new THREE.Group();
+    const vp = new THREE.Mesh(new THREE.CylinderGeometry(.6, .6, H + 4 - oy, 6), pipeMat);
+    vp.position.set(ox, (H + 4 + oy) / 2, oz);
+    const spout = new THREE.Mesh(new THREE.BoxGeometry(2.2, .5, 2), pipeMat);
+    spout.position.set(ox - .9, oy, oz);
+    eqp.outlet.add(vp, spout);
+    world.fall = { ox: ox - 2, oy: oy - .2, oz, ix: ox - 2 };
+    for (const k of ['sponge', 'canister', 'heater', 'air', 'co2', 'outlet']) scene.add(eqp[k]);
+    world.spray = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(SPRAY_N * 3), 3)),
+      new THREE.PointsMaterial({ color: 0xeaffff, size: .4, transparent: true, opacity: .75, depthWrite: false }));
+    world.spray.frustumCulled = false;
+    world.spraySeeds = Array.from({ length: SPRAY_N * 2 }, () => Math.random());
+    scene.add(world.spray);
+    // rayons de lumière sous la rampe
+    world.rays = [];
+    for (let i = 0; i < 5; i++) {
+      const w = 3 + R() * 4;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, H * .9).translate(0, H * .45, 0), new THREE.ShaderMaterial({
+        uniforms: { uTime: world.fx.uTime, uI: { value: 0 }, uSeed: { value: R() * 10 } },
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: 'varying vec2 vUv; uniform float uTime, uI, uSeed; void main() { float e = sin(vUv.x * 3.1416); float a = e * e * pow(vUv.y, 1.6) * uI * (.55 + .45 * sin(uTime * .6 + uSeed)); gl_FragColor = vec4(vec3(.8, .95, 1.) * a, 1.); }',
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      }));
+      m.position.set((R() - .5) * (L - 8), 1.5, (R() - .5) * (W - 6));
+      m.rotation.z = (R() - .5) * .15;
+      scene.add(m); world.rays.push(m);
+    }
     // bulles
     const bg = new THREE.BufferGeometry();
     bg.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(120 * 3), 3));
@@ -648,6 +679,8 @@ const Render = (() => {
       place(new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, L.size > 1.5 ? 9 : 6), new THREE.MeshLambertMaterial(), list.length), list);
       pl.floating = true;
     }
+    const amp = L.shape === 'stem' && L.h && L.h[0] < .3 ? .5 : SWAY_AMP[L.shape];
+    if (amp) for (const pm of pl.meshes) swayMat(pm.mesh.material, amp);
     world.plants[key] = pl;
   }
 
@@ -683,7 +716,8 @@ const Render = (() => {
           } else if (pl.sway) {
             for (let i = 0; i < pm.mesh.count; i++) {
               const it = pm.list[i];
-              e.set(Math.sin(time * .7 + i * 1.3) * .08, it.ry, Math.cos(time * .5 + i) * .06); q.setFromEuler(e);
+              const fl = world.fx.uFlow.value;
+              e.set(Math.sin(time * .7 + i * 1.3) * .08 * (1 + fl), it.ry, Math.cos(time * .5 + i) * .06 * (1 + fl) - fl * .12); q.setFromEuler(e);
               m.compose(v.set(it.x, it.y, it.z), q, sc.set(it.sx, Math.min(it.sy, top - it.y - .5), it.sz));
               pm.mesh.setMatrixAt(i, m);
             }
@@ -916,7 +950,14 @@ const Render = (() => {
     else world.water.material.opacity = aq ? .28 : .2 + Math.min(.4, s.algae * .5 + w.tannin * .4);
     if (aq) {
       const p = world.water.geometry.attributes.position;
-      for (let i = 0; i < p.count; i++) p.setY(i, Math.sin(p.getX(i) * .4 + time * 1.5) * .08 + Math.cos(p.getZ(i) * .5 + time) * .06);
+      const fallOn = world.sprayOn, fx0 = world.fall.ix, fz0 = world.fall.oz;
+      const fl = world.fx.uFlow.value;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), z = p.getZ(i);
+        let y = (Math.sin(x * .4 + time * (1.5 + fl)) * .08 + Math.cos(z * .5 + time) * .06) * (1 + fl);
+        if (fallOn) { const d = Math.hypot(x - fx0, (z - fz0) * 1.2); y += Math.exp(-d * .35) * Math.sin(d * 2.2 - time * 9) * .3; }
+        p.setY(i, y);
+      }
       p.needsUpdate = true;
     }
 
@@ -933,6 +974,8 @@ const Render = (() => {
       world.equip.co2.visible = eq.co2;
     } else world.equip.air.visible = s.eq.air;
     updateBubbles(s, dt, top);
+    updateFx(s, dt, top);
+    updateExuviae(s);
     updatePlants(s);
     updateFood(s, dt);
 
@@ -946,6 +989,8 @@ const Render = (() => {
       let a = agents.get(sh.id);
       if (!a) { a = newAgent(sh); agents.set(sh.id, a); }
       stepAgent(a, sh, dt);
+      if (a.lm != null && sh.molt > a.lm + .5 && sh.size > 8) spawnExuvia(s, sh, a);
+      a.lm = sh.molt;
       const sc = sh.size / 10;
       tmpE.set(0, a.yaw, a.pitch);
       tmpQ.setFromEuler(tmpE);
@@ -978,6 +1023,169 @@ const Render = (() => {
     } else world.marker.visible = false;
     updateCamera();
     renderer.render(scene, camera);
+  }
+
+  // ---------- Effets d'eau ----------
+  // Uniformes partagés : temps, courant (force + direction), hauteur du sol, caustiques
+  function fxUniforms() {
+    return { uTime: { value: 0 }, uFlow: { value: 0 }, uDir: { value: new THREE.Vector2(-1, .3).normalize() },
+      uFloor: { value: 2 }, uSpan: { value: 20 }, uCaus: { value: 0 } };
+  }
+  const SWAY_AMP = { moss: .25, stem: 2.2, ribbon: .9, rosette: 1, epi: .6, carpet: .5 };
+  const SWAY_VS = `
+    vec4 mvPosition = vec4(transformed, 1.0);
+    #ifdef USE_INSTANCING
+      mvPosition = instanceMatrix * mvPosition;
+    #endif
+    vec4 wp = modelMatrix * mvPosition;
+    float hg = clamp((wp.y - uFloor) / uSpan, 0., 1.);
+    float k = uAmp * hg * hg;
+    float wv = sin(uTime * 1.3 + wp.x * .25 + wp.z * .18) + .5 * sin(uTime * 2.3 + wp.x * .6 + wp.y * .3);
+    float push = uFlow * (1. + .4 * sin(uTime * .7 + wp.x * .1));
+    wp.x += (uDir.x * push + wv * (.3 + uFlow * .5)) * k;
+    wp.z += (uDir.y * push + cos(uTime * 1.1 + wp.z * .3 + wp.y * .2) * .3) * k;
+    mvPosition = viewMatrix * wp;
+    gl_Position = projectionMatrix * mvPosition;`;
+  // Plantes : ondulent avec le courant, d'autant plus qu'elles sont hautes
+  function swayMat(mat, amp) {
+    const U = world.fx, uAmp = { value: amp };
+    mat.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, { uTime: U.uTime, uFlow: U.uFlow, uDir: U.uDir, uFloor: U.uFloor, uSpan: U.uSpan, uAmp });
+      sh.vertexShader = 'uniform float uTime, uFlow, uFloor, uSpan, uAmp;\nuniform vec2 uDir;\n' + sh.vertexShader.replace('#include <project_vertex>', SWAY_VS);
+    };
+    mat.customProgramCacheKey = () => 'sway';
+    return mat;
+  }
+  // Caustiques : reflets de la surface qui dansent sur le sol et les roches
+  const CAUSTIC_FN = `
+    float caustic(vec2 uv, float t) {
+      vec2 p = mod(uv * 6.2831, 6.2831) - 250.;
+      vec2 i = p; float c = 1.;
+      for (int n = 0; n < 4; n++) {
+        float tt = t * (1. - (3.5 / float(n + 1)));
+        i = p + vec2(cos(tt - i.x) + sin(tt + i.y), sin(tt - i.y) + cos(tt + i.x));
+        c += 1. / length(vec2(p.x / (sin(i.x + tt) / .005), p.y / (cos(i.y + tt) / .005)));
+      }
+      c /= 4.;
+      c = 1.17 - pow(c, 1.4);
+      return clamp(pow(abs(c), 8.), 0., 1.);
+    }
+  `;
+  function causticMat(mat) {
+    const U = world.fx;
+    mat.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, { uTime: U.uTime, uCaus: U.uCaus });
+      sh.vertexShader = 'varying vec3 vWpC;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vWpC = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = 'uniform float uTime, uCaus;\nvarying vec3 vWpC;\n' + CAUSTIC_FN + sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+        float cf = 1.;
+        #ifdef USE_FOG
+          cf = 1. - fogFactor;
+        #endif
+        gl_FragColor.rgb += vec3(.7, .92, 1.) * caustic(vWpC.xz * .04, uTime * .35) * uCaus * cf;`);
+    };
+    mat.customProgramCacheKey = () => 'caustic';
+    return mat;
+  }
+  // Particules en suspension qui dérivent avec le courant
+  const MOTES = 160;
+  function buildMotes() {
+    const P = new Float32Array(MOTES * 3);
+    for (let i = 0; i < MOTES; i++) {
+      const [x, z] = dims.rand();
+      P[i * 3] = x; P[i * 3 + 1] = 3 + Math.random() * (dims.waterTop() - 4); P[i * 3 + 2] = z;
+    }
+    world.motes = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(P, 3)),
+      new THREE.PointsMaterial({ color: world.aq ? 0xd8d0b0 : 0xb8c890, size: .16, transparent: true, opacity: .45, depthWrite: false }));
+    world.motes.frustumCulled = false;
+    scene.add(world.motes);
+  }
+  const SPRAY_N = 300;
+  function updateFx(s, dt, top) {
+    const U = world.fx, aq = world.aq, eq = s.eq;
+    U.uTime.value = time;
+    // force du courant : filtre, bulleur, vent et pluie dehors
+    let flow;
+    if (aq) flow = s.power ? ({ canister: .9, guarded: .85, sponge: .35 }[eq.filter] || 0) + (eq.air ? .15 : 0) : 0;
+    else flow = .2 + (s._wx && s._wx.rain > s.t ? .35 : 0) + (s.power && eq.air ? .15 : 0);
+    if (s.ice) flow = 0;
+    U.uFlow.value += (flow - U.uFlow.value) * Math.min(1, dt * .6);
+    const L = s.light || 0;
+    U.uCaus.value = s.ice ? 0 : L * (aq ? .55 : .4) * Math.max(.2, 1 - s.algae * .8 - s.w.tannin * .6);
+
+    // particules
+    const mp = world.motes.geometry.attributes.position, fl = U.uFlow.value, d = U.uDir.value;
+    for (let i = 0; i < MOTES; i++) {
+      let x = mp.getX(i) + (d.x * fl * 1.2 + Math.sin(time * .4 + i) * .15) * dt;
+      let y = mp.getY(i) + Math.sin(time * .3 + i * 1.7) * .12 * dt;
+      let z = mp.getZ(i) + (d.y * fl * 1.2 + Math.cos(time * .35 + i * .7) * .15) * dt;
+      if (!dims.inside(x, z) || y < dims.surf(x, z) || y > top - .2) { [x, z] = dims.rand(); y = dims.surf(x, z) + 1 + Math.random() * Math.max(.5, top - dims.surf(x, z) - 2); }
+      mp.setXYZ(i, x, y, z);
+    }
+    mp.needsUpdate = true;
+
+    if (!aq) return;
+    // rayons de lumière (tournés vers la caméra)
+    for (const r of world.rays) {
+      r.material.uniforms.uI.value = L * .1 * Math.max(.2, 1 - s.algae);
+      r.visible = L > 0;
+      r.rotation.y = Math.atan2(camera.position.x - r.position.x, camera.position.z - r.position.z);
+    }
+    // cascade du filtre externe, ou bulles qui éclatent au-dessus du filtre éponge
+    const canister = s.power && (eq.filter === 'canister' || eq.filter === 'guarded');
+    const sponge = s.power && eq.filter === 'sponge';
+    world.equip.outlet.visible = eq.filter === 'canister' || eq.filter === 'guarded';
+    world.sprayOn = canister;
+    const sp = world.spray, p = sp.geometry.attributes.position, sd = world.spraySeeds, f = world.fall;
+    sp.visible = canister || sponge;
+    if (!sp.visible) return;
+    const g = 30, v0 = 3.2, hf = Math.max(.3, f.oy - top), T = Math.sqrt(2 * hf / g);
+    f.ix = f.ox - v0 * T;
+    const hide = i => p.setXYZ(i, 0, -1000, 0);
+    for (let i = 0; i < SPRAY_N; i++) {
+      const a = sd[i], b = sd[i + SPRAY_N];
+      if (i < 150) {                                   // filet d'eau qui tombe
+        if (!canister) { hide(i); continue; }
+        const t = ((time / T * .8 + a) % 1) * T;
+        p.setXYZ(i, f.ox - v0 * t * (.9 + b * .2) + (a - .5) * .3, f.oy - .5 * g * t * t, f.oz + (b - .5) * 1.9);
+      } else if (i < 240) {                            // bulles entraînées sous la surface
+        if (!canister) { hide(i); continue; }
+        const ph = (time * (.5 + a * .4) + b) % 1;
+        p.setXYZ(i, f.ix - ph * (2 + b * 5), top - (1 + b * 5) * Math.sin(ph * Math.PI), f.oz + (a - .5) * 2.5 + ph * 1.5);
+      } else {                                         // écume / éclatement des bulles
+        const ph = (time * 1.3 + a) % 1, ang = b * Math.PI * 2;
+        const [cx, cz, rr] = canister ? [f.ix, f.oz, 2.6] : [world.equip.sponge.position.x, world.equip.sponge.position.z, 1.3];
+        p.setXYZ(i, cx + Math.cos(ang) * ph * rr, top + .05 + Math.sin(ph * Math.PI) * .25, Math.max(-dims.W / 2 + .3, cz + Math.sin(ang) * ph * rr * .7));
+      }
+    }
+    p.needsUpdate = true;
+  }
+  // Mues : l'exuvie reste au sol puis disparaît (mangée)
+  const ghostCache = new Map();
+  function spawnExuvia(s, sh, a) {
+    if (!world.exu || world.exuBuilt > 0) return;
+    const st = voxStage(sh);
+    const key = [st.o.res, st.o.sex, st.o.antenna].join();
+    let geo = ghostCache.get(key);
+    if (!geo) { geo = Voxel.build(Object.assign({}, st.o, { ghost: true, eggs: false, saddle: false })); ghostCache.set(key, geo); world.exuBuilt = 1; }
+    const m = new THREE.Mesh(geo, voxMat);
+    m.userData.vox = true;
+    const cm = sh.size / 10;
+    m.position.set(a.x, surfY(a.x, a.z) + cm * .08, a.z);
+    m.rotation.set(1.35 + Math.random() * .3, Math.random() * 6, 0, 'YXZ');
+    m.scale.setScalar(cm);
+    m.userData.t0 = s.t; m.userData.sc = cm;
+    scene.add(m);
+    world.exu.push(m);
+    if (world.exu.length > 12) scene.remove(world.exu.shift());
+  }
+  function updateExuviae(s) {
+    world.exuBuilt = 0;
+    world.exu = world.exu.filter(m => {
+      const age = s.t - m.userData.t0;
+      if (age > 48 || age < 0) { scene.remove(m); return false; }
+      m.scale.setScalar(m.userData.sc * Math.min(1, 1.6 - age / 48));
+      return true;
+    });
   }
 
   // Matériau voxel animé (un par maillage du pool : uniformes propres, même programme GPU)
