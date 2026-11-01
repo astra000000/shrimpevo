@@ -273,7 +273,7 @@ const Render = (() => {
       scene.background = new THREE.Color(0x0d1117);
       world.fx.uFloor.value = 2.5; world.fx.uSpan.value = H * .85;
       buildAquarium(s, R, sub);
-      if (!same) { cam.target.set(0, H * .4, 0); cam.dist = L * 1.5; cam.pitch = .18; cam.yaw = .35; }
+      if (!same) { cam.target.set(0, H * .4, 0); cam.dist = L * 1.5 * fitAspect(); cam.pitch = .18; cam.yaw = .35; }
     } else {
       const D = 30 + vol / 50;
       const Rr = Math.sqrt(vol * 1000 / (Math.PI * D * .6));
@@ -284,7 +284,7 @@ const Render = (() => {
       dims.waterTop = () => D * s.w.level;
       world.fx.uFloor.value = 2; world.fx.uSpan.value = D * .8;
       buildPond(s, R, sub);
-      if (!same) { cam.target.set(0, D * .5, 0); cam.dist = Rr * 2.6; cam.pitch = .75; cam.yaw = .3; }
+      if (!same) { cam.target.set(0, D * .5, 0); cam.dist = Rr * 2.6 * fitAspect(); cam.pitch = .75; cam.yaw = .3; }
     }
 
     // Lumières
@@ -1617,9 +1617,13 @@ const Render = (() => {
     camera.lookAt(target);
   }
   function bindControls() {
-    let drag = null;
+    let drag = null, pinch = null;
+    const pts = new Map();
+    const two = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; };
     canvas.addEventListener('contextmenu', e => e.preventDefault());
     canvas.addEventListener('pointerdown', e => {
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) { pinch = two(); if (drag) drag.moved = 99; drag = drag && drag.deco != null ? null : drag; return; }
       drag = { x: e.clientX, y: e.clientY, b: e.button, moved: 0, shift: e.shiftKey };
       if (deco && e.button === 0 && !deco.placing()) {
         const id = decoPick(e.clientX, e.clientY);
@@ -1628,6 +1632,17 @@ const Render = (() => {
       canvas.setPointerCapture(e.pointerId);
     });
     canvas.addEventListener('pointermove', e => {
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size >= 2) {
+        const t = two(), lim = dims ? Math.max(dims.L, dims.W) : 100;
+        cam.dist = Math.max(3, Math.min(lim * 4, cam.dist * pinch.d / Math.max(10, t.d)));
+        follow = false;
+        const k = cam.dist * .0015, right = new THREE.Vector3(Math.cos(cam.yaw), 0, -Math.sin(cam.yaw));
+        cam.target.addScaledVector(right, -(t.mx - pinch.mx) * k);
+        cam.target.y += (t.my - pinch.my) * k;
+        pinch = t;
+        return;
+      }
       if (!drag) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       drag.x = e.clientX; drag.y = e.clientY;
@@ -1648,7 +1663,19 @@ const Render = (() => {
         cam.pitch = Math.max(world && !world.aq ? .12 : -.15, Math.min(1.45, cam.pitch + dy * .005));
       }
     });
+    const endPointer = e => {
+      pts.delete(e.pointerId);
+      if (pinch) {
+        if (pts.size < 2) pinch = null;
+        const rest = [...pts.values()][0];
+        drag = rest ? { x: rest.x, y: rest.y, b: 0, moved: 99 } : null;
+        return true;
+      }
+      return false;
+    };
+    canvas.addEventListener('pointercancel', e => { endPointer(e); drag = null; });
     canvas.addEventListener('pointerup', e => {
+      if (endPointer(e)) return;
       if (deco && drag && drag.b === 0) {
         if (drag.deco != null && drag.pt && drag.moved >= 6) deco.onMove(drag.deco, ...decorNorm(drag.pt.x, drag.pt.z));
         else if (drag.moved < 6 && deco.placing()) { const pt = groundAt(e.clientX, e.clientY); if (pt) deco.onPlace(...decorNorm(pt.x, pt.z)); }
@@ -1685,11 +1712,13 @@ const Render = (() => {
     follow = !!fol && id != null;
     if (follow) cam.dist = Math.min(cam.dist, 14);
   }
+  // écran en portrait (téléphone) : on recule pour voir tout le bac
+  const fitAspect = () => Math.max(1, .8 / camera.aspect);
   function resetView() {
     follow = false;
     if (!dims) return;
-    if (dims.aq) { cam.target.set(0, dims.H * .4, 0); cam.dist = dims.L * 1.5; cam.pitch = .18; cam.yaw = .35; }
-    else { cam.target.set(0, dims.D * .5, 0); cam.dist = dims.R * 2.6; cam.pitch = .75; cam.yaw = .3; }
+    if (dims.aq) { cam.target.set(0, dims.H * .4, 0); cam.dist = dims.L * 1.5 * fitAspect(); cam.pitch = .18; cam.yaw = .35; }
+    else { cam.target.set(0, dims.D * .5, 0); cam.dist = dims.R * 2.6 * fitAspect(); cam.pitch = .75; cam.yaw = .3; }
   }
 
   function disposeScene() {

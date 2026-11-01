@@ -626,7 +626,9 @@ const UI = (() => {
       ${m.trend ? `<div class="trend">🔥 Tendance de la semaine : <b>${esc(m.trend)}</b> (prix ×1.6)</div>` : ''}
       <h4>Mes annonces <small class="dimc">— vendu au total : ${W.stats.sold} pour ${money(W.stats.earned)}</small></h4>
       ${mine || '<p class="dimc" style="font-size:13px">Aucune annonce. Pour vendre : onglet Sélection → choisis des crevettes → Vendre.</p>'}
-      <h4>Annonces des éleveurs</h4><div class="items">${cards || '<p class="dimc">Rien pour l\'instant, reviens demain.</p>'}</div>`, el => {
+      ${Online.enabled() ? `<h4>🌐 Joueurs en ligne <small class="dimc">${Online.name ? '— tu es ' + esc(Online.name) : ''}</small></h4><div id="netMarket" class="items"><p class="dimc">Chargement…</p></div>` : ''}
+      <h4>Annonces des éleveurs (simulés)</h4><div class="items">${cards || '<p class="dimc">Rien pour l\'instant, reviens demain.</p>'}</div>`, el => {
+      if (Online.enabled()) loadNetMarket();
       el.querySelectorAll('canvas[data-pid]').forEach(cv => {
         const l = m.listings.find(x => x.id === cv.dataset.pid);
         try { Render.portrait(cv, fakeShrimp(l.stock[0], l.genus, 'm' + l.id)); } catch (e) { }
@@ -637,6 +639,106 @@ const UI = (() => {
       });
       el.querySelectorAll('[data-un]').forEach(b => b.onclick = () => { Economy.unlist(W, +b.dataset.un); marketModal(); });
     }, true);
+  }
+
+  // ---------- Marché entre joueurs ----------
+  let netRows = [];
+  async function loadNetMarket() {
+    const box = () => document.getElementById('netMarket');
+    try {
+      netRows = (await Online.listings()).filter(r => r.entry && Array.isArray(r.stock) && r.stock.length && Online.validDna(r.stock[0]));
+    } catch (e) { if (box()) box().innerHTML = `<p class="bad">${esc(e.message)}</p>`; return; }
+    const el = box();
+    if (!el) return;
+    el.innerHTML = netRows.map(r => {
+      const mine = r.seller === Online.me, c = r.entry.cond || {};
+      return `<div class="item"><canvas data-nid="${r.id}"></canvas>
+        <span class="t">« ${esc(r.entry.name)} » <small class="dimc">${GENERA[r.genus].short}</small></span>
+        <span class="d">${esc(r.entry.cls || '')} · par <b>${esc(r.seller_name)}</b>${mine ? ' (toi)' : ''}<br>${c.tOpt != null ? `T° ${fmt(c.tOpt)} ± ${fmt(c.tTol)} · pH ${fmt(c.phOpt, 1)} · GH ${fmt(c.ghOpt)}<br>` : ''}${esc(r.note || r.entry.desc || '')}</span>
+        <span class="p">${money(+r.price)} / crevette · ${r.stock.length} dispo${r.sold ? ` · ${r.sold} vendue(s)` : ''}</span>
+        <div class="row">${mine ? `<button data-nun="${r.id}">Retirer (récupérer ${r.stock.length})</button>`
+          : [1, 5].map(n => `<button data-nb="${r.id}" data-n="${n}">Acheter ${n}</button>`).join('') + `<button data-nb="${r.id}" data-n="50">Tout</button>`}</div></div>`;
+    }).join('') || '<p class="dimc">Aucune annonce de joueur pour l\'instant. Sois le premier : onglet Sélection → Vendre → « Joueurs en ligne ».</p>';
+    el.querySelectorAll('canvas[data-nid]').forEach(cv => {
+      const r = netRows.find(x => x.id === +cv.dataset.nid);
+      try { Render.portrait(cv, fakeShrimp(r.stock[0], r.genus, 'n' + r.id)); } catch (e) { }
+    });
+    el.querySelectorAll('[data-nb]').forEach(b => b.onclick = () => netBuy(+b.dataset.nb, +b.dataset.n));
+    el.querySelectorAll('[data-nun]').forEach(b => b.onclick = () => netUnlist(+b.dataset.nun));
+  }
+  // Pseudo demandé une fois, avant la première action en ligne
+  function withName(next) {
+    if (Online.name) return next();
+    modal(`<h2>🌐 Ton pseudo</h2><p style="font-size:14px">Il apparaîtra sur tes annonces et dans le bestiaire de tes acheteurs.</p>
+      <div class="row"><input id="pName" maxlength="24" placeholder="ex. CrevetteMaster" style="flex:1;background:#0f1e22;border:2px solid var(--line)"><button class="big" id="pGo">OK</button></div>`, () => {
+      $('pGo').onclick = () => {
+        const n = $('pName').value.trim();
+        if (n.length < 2) return toast('2 caractères minimum.', 'warn');
+        Online.setName(n); closeModal(); next();
+      };
+    });
+  }
+  async function netBuy(id, n) {
+    const r = netRows.find(x => x.id === id);
+    if (!r) return;
+    n = Math.min(n, r.stock.length);
+    if (W.money < r.price * n) return toast(`Pas assez de ${MONEY}.`, 'warn');
+    withName(async () => {
+      try {
+        const res = await Online.buy(id, n);
+        const dna = (res.dna || []).filter(Online.validDna);
+        Economy.pay(W, +res.price * res.n);
+        Economy.receive(W, res.genus, dna, res.entry, res.seller_name);
+        Sim.log(W, `🌐 Acheté à ${res.seller_name} : ${res.n} × « ${res.entry.name} » pour ${moneyTxt(res.price * res.n)}.`, 'info', true);
+        closeModal(); bagsModal();
+      } catch (e) { toast(e.message, 'warn'); marketModal(); }
+    });
+  }
+  async function netUnlist(id) {
+    try {
+      const res = await Online.unlist(id);
+      const dna = (res.dna || []).filter(Online.validDna);
+      Economy.receive(W, res.genus, dna, res.entry, 'retour du marché');
+      toast(`Annonce retirée : ${dna.length} crevette(s) reviennent en colis.`);
+      closeModal(); bagsModal();
+    } catch (e) { toast(e.message, 'warn'); }
+  }
+  // Publication : les crevettes partent au marché (elles quittent le bac), payées à chaque vente
+  function netPublish(s, list, price, note) {
+    const genus = list[0].genus;
+    if (list.some(sh => sh.genus !== genus)) return toast('Une annonce ne peut mélanger Neocaridina et Caridina.', 'warn');
+    if (list.length > 50) return toast('50 crevettes maximum par annonce.', 'warn');
+    withName(async () => {
+      const strains = new Set(list.map(sh => sh.strain));
+      const own = strains.size === 1 && list[0].strain ? Economy.entryOf(W, list[0].strain) : null;
+      const cls = Gen.colorClass(list[0].g);
+      const entry = {
+        id: own && own.id.startsWith('u:') ? own.id : `u:${(Online.me || 'x').slice(0, 8)}:${own ? own.id : 'lot' + W.nextUid++}`,
+        name: own ? own.name : cls, author: Online.name, genus, cls: own ? own.cls : cls, dna: list[0].dna,
+        cond: Economy.condOf(list.map(sh => sh.g)), desc: own ? own.desc || '' : note || '', created: 0, source: 'market',
+      };
+      try {
+        await Online.publish({ genus, entry, stock: list.map(sh => sh.dna), price, note: note || null });
+        const ids = new Set(list.map(sh => sh.id));
+        s.shrimp = s.shrimp.filter(sh => !ids.has(sh.id));
+        Sim.log(W, `🌐 Mise en vente en ligne : ${list.length} × « ${entry.name} » à ${moneyTxt(price)} pièce. Elles sont parties au marché.`, 'info', true, s);
+        net.clear(); closeModal(); refreshAll(true);
+      } catch (e) { toast(e.message, 'warn'); }
+    });
+  }
+  // Encaissement des ventes en ligne (toutes les 2 minutes)
+  let lastCollect = 0;
+  async function netCollect() {
+    if (!W || !career() || !Online.enabled() || !Online.name || Date.now() - lastCollect < 120000) return;
+    lastCollect = Date.now();
+    try {
+      const rows = await Online.collect();
+      for (const r of rows || []) {
+        Economy.earn(W, +r.total);
+        W.stats.sold += r.n; W.stats.earned += +r.total;
+        Sim.log(W, `💰 Vente en ligne : ${r.n} × « ${r.strain} » à ${r.buyer_name} pour ${moneyTxt(+r.total)}.`, 'birth', true);
+      }
+    } catch (e) { console.warn('Encaissement en ligne', e); }
   }
 
   // ---------- Bestiaire ----------
@@ -756,9 +858,12 @@ const UI = (() => {
       <p style="font-size:14px">Valeur estimée : <b>${money(Math.min(...vals))} – ${money(Math.max(...vals))}</b> (moyenne ${money(avg)}). Au-dessus, ça part lentement ; bien au-dessus, presque jamais.</p>
       <div class="row">Prix par crevette <input type="number" id="sPrice" class="qty" value="${Math.max(1, Math.round(avg))}" min="0.5" step="0.5"> ${MONEY}</div>
       <div class="row">Note <input id="sNote" placeholder="ex. couple reproducteur" style="flex:1;background:#0f1e22;border:2px solid var(--line)"></div>
-      <p class="dimc" style="font-size:13px">Elles restent dans ton bac jusqu'à la vente. Astuce : nomme ta souche dans le bestiaire, une souche stable se vend plus cher.</p>
+      ${Online.enabled() && career() ? `<div class="row"><label class="chk"><input type="radio" name="sWhere" value="npc" checked> Éleveurs simulés</label><label class="chk"><input type="radio" name="sWhere" value="net"> 🌐 Joueurs en ligne</label></div>` : ''}
+      <p class="dimc" style="font-size:13px">Éleveurs simulés : elles restent dans ton bac jusqu'à la vente. Joueurs en ligne : elles partent tout de suite au marché, tu es payé à chaque achat (même jeu fermé), et tu peux retirer l'annonce pour les récupérer. Astuce : nomme ta souche dans le bestiaire, sa fiche suit tes crevettes chez l'acheteur.</p>
       <button class="big" id="sGo">Mettre en vente</button>`, () => {
       $('sGo').onclick = () => {
+        const where = document.querySelector('input[name=sWhere]:checked');
+        if (where && where.value === 'net') return netPublish(s, list, Math.max(.5, +$('sPrice').value || 1), $('sNote').value.slice(0, 60));
         const err = Economy.sell(W, s, list.map(sh => sh.id), Math.max(.5, +$('sPrice').value || 1), $('sNote').value.slice(0, 60));
         if (err) return toast(err, 'warn');
         net.clear(); closeModal(); toast('Annonce publiée.'); refreshAll(true);
@@ -1123,6 +1228,7 @@ const UI = (() => {
     $('clock').innerHTML = `${date}Jour <b>${c.day}</b> · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${seasonOf(c.doy)}${s && s.light > 0 ? ' ☀' : ' ☾'}`;
     $('money').innerHTML = career() ? money(W.money) : '';
     if (W.stats.sold > (lastSold ?? W.stats.sold)) Sound.coin();
+    netCollect();
     lastSold = W.stats.sold;
   }
 
@@ -1170,6 +1276,10 @@ const UI = (() => {
     $('btnMarket').onclick = marketModal;
     $('btnBook').onclick = () => bookModal();
     $('btnBags').onclick = bagsModal;
+    const side = c => { const on = !document.body.classList.contains(c); document.body.classList.remove('m-left', 'm-right'); if (on) document.body.classList.add(c); };
+    $('mLeft').onclick = () => side('m-left');
+    $('mRight').onclick = () => side('m-right');
+    if (window.innerWidth < 820) { $('pixSel').value = '2'; Render.setPixelScale(2); }
     $('btnSound').textContent = Sound.muted ? '🔇' : '🔊';
     $('btnSound').onclick = () => { $('btnSound').textContent = Sound.toggle() ? '🔊' : '🔇'; };
     $('btnView').onclick = () => Render.resetView();

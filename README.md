@@ -65,3 +65,19 @@ d'un futur serveur partagé ; aujourd'hui acheteurs et éleveurs sont simulés.
 
 `tools/headless.html?sc=aqua|fish|pond|newtank&days=N` : simulation sans rendu pour l'équilibrage
 (à servir en HTTP, ex. `py -m http.server`).
+
+## Jouer en ligne (PC et mobile)
+
+Le jeu est un site statique : GitHub Pages suffit. Sur téléphone : ouvrir le lien puis « Ajouter à l'écran d'accueil ».
+Les sauvegardes restent dans le navigateur de chaque appareil (export/import en bac à sable).
+Mobile : un doigt pour tourner, deux doigts pour zoomer et se déplacer, 💧 et 🦐 pour les panneaux.
+
+## Marché entre joueurs (Supabase, gratuit)
+
+1. Créer un projet sur supabase.com.
+2. SQL Editor : coller et exécuter `supabase/schema.sql`.
+3. Authentication → Sign In / Providers : activer « Allow anonymous sign-ins ».
+4. Renseigner `js/config.js` (Project URL + clé anon/publishable, faite pour être publique).
+
+Sans configuration, le marché reste simulé. En carrière, « Vendre → Joueurs en ligne » envoie les crevettes au
+marché ; le vendeur est payé à sa prochaine connexion, l'acheteur reçoit un colis et la fiche de la souche.

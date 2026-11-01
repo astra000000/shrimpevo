@@ -288,16 +288,22 @@ const Economy = (() => {
     if (!l) return 'Annonce introuvable.';
     n = Math.min(n, l.stock.length);
     if (!pay(W, l.price * n)) return `Pas assez de ${MONEY}.`;
-    if (!W.bestiary.find(e => e.id === l.entry.id)) W.bestiary.push(Object.assign({}, l.entry));
-    const list = l.stock.splice(0, n).map(dna => {
-      const g = Gen.express(dna, l.genus);
-      const sh = Sim.makeShrimp(W, l.genus, dna, { age: 60 + rnd() * 60, size: g.size * (.75 + rnd() * .2), strain: l.entry.id });
-      sh.origin = `${l.entry.name} (${l.seller})`;
-      return sh;
-    });
-    Sim.addBag(W, list, { gh: 4 + rnd() * 8, kh: rnd() * 6, ph: 6.2 + rnd() * 1.4, temp: 21 + rnd() * 3 }, `${n} × ${l.entry.name} de ${l.seller}`);
+    receive(W, l.genus, l.stock.splice(0, n), l.entry, l.seller);
     if (!l.stock.length) m.listings = m.listings.filter(x => x !== l);
     return null;
+  }
+
+  // Livraison en colis : la fiche de la souche arrive avec les crevettes dans le bestiaire
+  function receive(W, genus, dnas, entry, seller) {
+    if (entry && !W.bestiary.find(e => e.id === entry.id)) W.bestiary.push(Object.assign({}, entry, { source: entry.source === 'mine' ? 'market' : entry.source || 'market' }));
+    const list = dnas.map(dna => {
+      const g = Gen.express(dna, genus);
+      const sh = Sim.makeShrimp(W, genus, dna, { age: 60 + rnd() * 60, size: g.size * (.75 + rnd() * .2), strain: entry ? entry.id : null });
+      sh.origin = `${entry ? entry.name : 'crevettes'} (${seller})`;
+      return sh;
+    });
+    if (list.length) Sim.addBag(W, list, { gh: 4 + rnd() * 8, kh: rnd() * 6, ph: 6.2 + rnd() * 1.4, temp: 21 + rnd() * 3 }, `${list.length} × ${entry ? entry.name : 'crevettes'} de ${seller}`);
+    return list;
   }
 
   // ---------- Ventes du joueur ----------
@@ -368,6 +374,6 @@ const Economy = (() => {
   return {
     career, pay, earn, owned, consume, spare, setEquip, maxIntensity, waterSources, useWater, testStrip, testDrops, reading,
     buy, tankPrice, createTank, buyStrain, ensureShopEntry, entryOf, createStrain, stability, countAlive, value,
-    ensureMarket, refreshMarket, buyListing, sell, unlist, tick, newCareer, fmt, SHOP_WATER,
+    ensureMarket, refreshMarket, buyListing, sell, unlist, tick, newCareer, fmt, SHOP_WATER, receive, condOf,
   };
 })();

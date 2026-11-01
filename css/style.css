@@ -210,3 +210,35 @@ canvas#graph, canvas#hist { width: 100%; background: #08141a; border: 2px solid 
 #decoPanel .deco-row > span { flex: 1 1 200px; }
 #decoPanel button.on { background: #2b5a4a; border-color: #ffe14d; }
 #decoPanel small { color: #9fd0d6; }
+
+/* ---------- Mobile ---------- */
+#view { touch-action: none; }
+html, body { overscroll-behavior: none; }
+#mnav { display: none; position: fixed; right: 8px; top: 84px; z-index: 13; flex-direction: column; gap: 6px; }
+#mnav button { font-size: 20px; width: 42px; height: 42px; padding: 0; }
+@media (max-width: 820px) {
+  #top { gap: 4px 6px; padding: 4px 6px; height: auto; flex-wrap: wrap; }
+  .top-right { margin-left: 0; width: 100%; justify-content: space-between; }
+  #tankbar { top: 70px; }
+  #mnav { top: 112px; }
+  .brand, .lbl, #speed .eff { display: none; }
+  #speed button { padding: 2px 6px; font-size: 12px; }
+  .top-right button { padding: 3px 7px; }
+  #clock { font-size: 11px; }
+  #mnav { display: flex; }
+  .panel { display: none; left: 0 !important; right: 0 !important; width: auto !important; top: 106px; bottom: 56px; z-index: 12; border-left: 0; border-right: 0; }
+  body.m-left #left, body.m-right #right { display: block; padding-right: 58px; }
+  body.m-left #mLeft, body.m-right #mRight { background: #2b5a4a; border-color: #ffe14d; }
+  #actions { flex-wrap: nowrap; overflow-x: auto; min-height: 0; height: 56px; padding: 4px 6px; gap: 10px; }
+  .agroup { flex: none; }
+  .agroup button { padding: 6px 8px; }
+  #noTank { inset: 106px 0 56px 0; padding: 0 16px; }
+  .modal-box, .modal-box.wide { width: 96vw; max-height: 86vh; overflow-y: auto; }
+  .items { grid-template-columns: 1fr; }
+  .title-box h1 { font-size: 34px; }
+  .title-buttons .big { padding: 10px 14px; }
+  #decoPanel { bottom: 60px; max-height: 42vh; }
+  #toasts { top: 110px; width: 92vw; }
+  .toast { max-width: 92vw; }
+  .book { grid-template-columns: 1fr !important; }
+}

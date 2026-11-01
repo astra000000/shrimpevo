@@ -2,7 +2,12 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1a1e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
 <title>ShrimpEvo</title>
 <link rel="icon" href="assets/shrimpcoin.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,10 +25,10 @@
     <div id="speed"></div>
     <div id="money"></div>
     <div class="top-right">
-      <button id="btnShop">🛒 Boutique</button>
-      <button id="btnMarket">📈 Marché</button>
-      <button id="btnBook">📖 Bestiaire</button>
-      <button id="btnBags">📦 Colis <span id="bagCount"></span></button>
+      <button id="btnShop">🛒<span class="lbl"> Boutique</span></button>
+      <button id="btnMarket">📈<span class="lbl"> Marché</span></button>
+      <button id="btnBook">📖<span class="lbl"> Bestiaire</span></button>
+      <button id="btnBags">📦<span class="lbl"> Colis</span> <span id="bagCount"></span></button>
       <button id="btnView" title="Recentrer la caméra">🎥</button>
       <select id="pixSel" title="Pixelisation"><option value="2">Pixels ×2</option><option value="3" selected>Pixels ×3</option><option value="4">Pixels ×4</option><option value="5">Pixels ×5</option></select>
       <button id="btnSound" title="Son (coupé / actif)">🔊</button>
@@ -64,6 +69,7 @@
   <footer id="actions"></footer>
   <div id="toasts"></div>
   <div id="decoPanel" class="hidden"></div>
+  <div id="mnav"><button id="mLeft" title="Eau et équipement">💧</button><button id="mRight" title="Colonie, sélection, fiche">🦐</button></div>
 </div>
 
 <!-- Écran titre -->
@@ -116,6 +122,8 @@
 <script src="js/save.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/audio.js"></script>
+<script src="js/config.js"></script>
+<script src="js/online.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>
