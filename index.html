@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShrimpEvo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=Silkscreen&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <header id="top">
+    <div class="brand">ShrimpEvo <span id="modeBadge" class="badge"></span></div>
+    <div id="clock"></div>
+    <div id="speed"></div>
+    <div class="top-right">
+      <button id="btnView" title="Recentrer la caméra">🎥</button>
+      <select id="pixSel" title="Pixelisation"><option value="2">Pixels ×2</option><option value="3" selected>Pixels ×3</option><option value="4">Pixels ×4</option><option value="5">Pixels ×5</option></select>
+      <button id="btnMenu">Menu</button>
+    </div>
+  </header>
+  <aside id="left" class="panel">
+    <h3>Eau</h3>
+    <div id="alerts"></div>
+    <div id="water"></div>
+    <h3>Équipement</h3>
+    <div id="equip"></div>
+  </aside>
+  <aside id="right" class="panel">
+    <nav id="tabs">
+      <button data-tab="pop" class="on">Colonie</button>
+      <button data-tab="graph">Graphes</button>
+      <button data-tab="sheet">Fiche</button>
+      <button data-tab="log">Journal</button>
+    </nav>
+    <div id="tab-pop" class="tab"></div>
+    <div id="tab-graph" class="tab hidden">
+      <div class="row"><select id="graphSel"></select></div>
+      <canvas id="graph" width="320" height="200"></canvas>
+      <div id="graphLegend" class="legend"></div>
+      <h4>Distribution actuelle</h4>
+      <div class="row"><select id="histSel"></select></div>
+      <canvas id="hist" width="320" height="130"></canvas>
+      <div id="histInfo" class="legend"></div>
+    </div>
+    <div id="tab-sheet" class="tab hidden"></div>
+    <div id="tab-log" class="tab hidden"><div id="log"></div></div>
+  </aside>
+  <footer id="actions"></footer>
+  <div id="toasts"></div>
+</div>
+
+<!-- Écran titre -->
+<div id="title" class="screen">
+  <div class="title-box">
+    <h1>ShrimpEvo</h1>
+    <p class="sub">Élève des crevettes. Laisse la nature faire le tri.</p>
+    <div id="titleSaves"></div>
+    <div class="title-buttons">
+      <button id="newNormal" class="big">Nouveau bac</button>
+      <button id="newHard" class="big danger">Nouveau bac hardcore</button>
+    </div>
+    <div class="title-small">
+      <label class="filebtn">Importer une sauvegarde<input type="file" id="importFile" accept=".json"></label>
+    </div>
+    <div id="graveyard"></div>
+  </div>
+</div>
+
+<!-- Création du bac -->
+<div id="setup" class="screen hidden">
+  <div class="setup-box">
+    <h2 id="setupTitle">Nouveau bac</h2>
+    <div id="setupForm"></div>
+    <div class="setup-foot">
+      <button id="setupBack">Retour</button>
+      <span id="setupHint"></span>
+      <button id="setupGo" class="big">Mettre en eau</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale générique -->
+<div id="modal" class="screen hidden"><div class="modal-box"><div id="modalBody"></div><div class="modal-foot"><button id="modalClose">Fermer</button></div></div></div>
+
+<!-- Rattrapage hardcore -->
+<div id="catchup" class="screen hidden"><div class="modal-box"><h2>Le bac a vécu sans toi…</h2><p id="catchupText"></p><div class="bar"><div id="catchupBar"></div></div></div></div>
+
+<script src="js/lib/three.min.js"></script>
+<script src="js/data.js"></script>
+<script src="js/genetics.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/render.js"></script>
+<script src="js/save.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

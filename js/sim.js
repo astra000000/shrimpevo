@@ -34,6 +34,7 @@ const Sim = (() => {
     s.log.push({ t: s.t, msg, kind });
     if (s.log.length > 400) s.log.splice(0, s.log.length - 400);
     if (toast) (s._toasts || (s._toasts = [])).push({ msg, kind });
+    if (toast && kind === 'bad') s._alarm = true;
   }
 
   // ---------- Création ----------
