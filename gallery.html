@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShrimpEvo — Galerie</title>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=Silkscreen&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  body { background: #a8c5d4; }
+  #g-top { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: var(--panel); border-bottom: 2px solid var(--line); z-index: 5; flex-wrap: wrap; }
+  #g-top .brand a { color: var(--acc); text-decoration: none; }
+  #g-stages { position: fixed; bottom: 0; left: 0; right: 0; display: flex; gap: 6px; justify-content: center; padding: 8px; background: var(--panel); border-top: 2px solid var(--line); z-index: 5; flex-wrap: wrap; }
+  #g-info { position: fixed; left: 12px; top: 64px; width: 290px; background: var(--panel); border: 2px solid var(--line); padding: 10px 12px; z-index: 5; font-size: 14px; }
+  #g-info h2 { color: var(--acc); font-size: 18px; margin: 0 0 4px; }
+  #g-info .meta { color: var(--dim); margin-bottom: 6px; }
+  #g-info p { margin: 6px 0; }
+  #labels { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
+  #labels div { position: absolute; transform: translate(-50%, 0); background: var(--panel); border: 2px solid var(--line); padding: 1px 6px; font-size: 12px; white-space: nowrap; }
+  .caption { position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%); font-family: var(--title); color: #1b2b33; font-size: 20px; z-index: 4; text-shadow: 0 1px 0 #ffffff88; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="labels"></div>
+<header id="g-top">
+  <div class="brand"><a href="index.html">← ShrimpEvo</a> · Galerie</div>
+  <select id="variety"></select>
+  <button id="mutant">🧬 Mutant aléatoire</button>
+  <button id="spin" class="on">⟳ Tourner</button>
+  <button id="overview">Cycle complet</button>
+  <label class="chk" id="realWrap"><input type="checkbox" id="real"> Échelle réelle</label>
+  <select id="pix" style="margin-left:auto"><option value="1">Net</option><option value="2" selected>Pixels ×2</option><option value="3">Pixels ×3</option><option value="4">Pixels ×4</option></select>
+</header>
+<aside id="g-info"></aside>
+<div class="caption" id="caption"></div>
+<nav id="g-stages"></nav>
+
+<script src="js/lib/three.min.js"></script>
+<script src="js/data.js"></script>
+<script src="js/genetics.js"></script>
+<script src="js/voxel.js"></script>
+<script>
+'use strict';
+// Galerie : une même crevette à chaque stade de sa vie, en voxels.
+
+const STAGES = [
+  { key: 'egg', name: 'Œuf', age: '0 à 30 jours', size: '~1 mm', real: 1.2, egg: true,
+    desc: "Porté sous l'abdomen de la mère et ventilé en permanence. Vers la fin, on voit les yeux de l'embryon à travers la coque." },
+  { key: 'baby', name: 'Bébé', age: '1 jour', size: '2 mm', real: 2, express: .3, sex: 'F', antenna: .5, res: 28, eyeScale: 1.35,
+    desc: "Pas de stade larvaire chez Caridina cantonensis : c'est une crevette miniature. Presque transparente, elle reste cachée dans la mousse." },
+  { key: 'juv', name: 'Juvénile', age: '3 semaines', size: '7 mm', real: 7, express: .65, sex: 'F', antenna: .75, res: 38, eyeScale: 1.15,
+    desc: "Les couleurs apparaissent mue après mue. C'est l'âge où les prédateurs repèrent les plus visibles." },
+  { key: 'sub', name: 'Sub-adulte', age: '2 mois', size: '15 mm', real: 15, express: .9, sex: 'F', antenna: .9, res: 48,
+    desc: "Presque la couleur définitive. Le sexe commence à se voir : l'abdomen des femelles s'élargit." },
+  { key: 'male', name: 'Mâle adulte', age: '5 mois', size: '21 mm', real: 21, express: 1, sex: 'M', antenna: 1.15, res: 56,
+    desc: "Plus fin, abdomen étroit, antennes plus longues. Il nage beaucoup après la mue d'une femelle pour la trouver." },
+  { key: 'female', name: 'Femelle avec selle', age: '5 mois', size: '25 mm', real: 25, express: 1, sex: 'F', antenna: 1, res: 56, saddle: true,
+    desc: "La « selle » jaune derrière la tête, ce sont les ovaires. Elle s'accouplera juste après sa prochaine mue." },
+  { key: 'berried', name: 'Femelle grainée', age: '6 mois', size: '25 mm', real: 25, express: 1, sex: 'F', antenna: 1, res: 56, eggs: true,
+    desc: "20 à 30 œufs collés aux pléopodes, ventilés pendant ~30 jours. Trop de stress et elle les lâche." },
+  { key: 'molt', name: 'Exuvie', age: 'toutes les 2 à 4 semaines', size: '—', real: 22, ghost: true, sex: 'F', antenna: 1, res: 56,
+    desc: "La vieille carapace laissée après la mue. Un GH trop bas ou trop haut et la mue échoue : c'est la première cause de mort chez les Caridina." },
+];
+
+const EXTRA = { car_green: { genus: 'car', name: 'Green Bee (ton image)', g: { hue: 138, sat: .75, dens: .88, dark: .45, stripe: 0, bands: .75, spots: .05, rili: 0 } } };
+const $ = id => document.getElementById(id);
+let variety = 'car_crs', genome = null, seed = 7, stage = 'female', overview = false, spin = true, pixel = 2;
+
+// ---------- Scène ----------
+const canvas = $('view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setPixelRatio(1);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa8c5d4);
+const camera = new THREE.PerspectiveCamera(35, 1, .05, 200);
+scene.add(new THREE.HemisphereLight(0xe8f2ff, 0x9a9488, .75));
+const sun = new THREE.DirectionalLight(0xffffff, .85);
+sun.position.set(-2.5, 5, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 4, bottom: -4, near: .5, far: 20 });
+sun.shadow.bias = -.0005;
+scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 7), new THREE.MeshLambertMaterial({ color: 0xe6e8e9 }));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
+scene.add(floor);
+const pedMat = new THREE.MeshLambertMaterial({ color: 0xb9bcbf }), topMat = new THREE.MeshLambertMaterial({ color: 0xd9dbdc });
+const pedestal = new THREE.Group();
+scene.add(pedestal);
+const shrimpGroup = new THREE.Group();
+scene.add(shrimpGroup);
+const TOP = .3;
+function buildPedestal(w, d) {
+  pedestal.clear();
+  const b = new THREE.Mesh(new THREE.BoxGeometry(w, .2, d), pedMat); b.position.y = .1;
+  const t = new THREE.Mesh(new THREE.BoxGeometry(w - .12, .1, d - .12), topMat); t.position.y = .25;
+  b.castShadow = b.receiveShadow = t.receiveShadow = t.castShadow = true;
+  pedestal.add(b, t);
+}
+
+const cam = { yaw: .75, pitch: .28, dist: 4.6, target: new THREE.Vector3(0, .55, 0) };
+function updateCam() {
+  camera.position.set(cam.target.x + Math.sin(cam.yaw) * Math.cos(cam.pitch) * cam.dist, cam.target.y + Math.sin(cam.pitch) * cam.dist, cam.target.z + Math.cos(cam.yaw) * Math.cos(cam.pitch) * cam.dist);
+  camera.lookAt(cam.target);
+}
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(Math.ceil(w / pixel), Math.ceil(h / pixel), false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+
+// ---------- Construction ----------
+const cache = new Map();
+function specimen(st, scale) {
+  const id = [variety, seed, st.key].join('|');
+  let geos = cache.get(id);
+  if (!geos) {
+    geos = st.egg ? Voxel.egg({ g: genome }) : [Voxel.build(Object.assign({ g: genome, seed }, st))];
+    cache.set(id, geos);
+  }
+  const grp = new THREE.Group();
+  geos.forEach((g, i) => {
+    const transparent = st.egg ? i === 0 : true;
+    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, transparent, depthWrite: !st.egg || i > 0 }));
+    m.castShadow = true;
+    if (st.egg && i === 0) m.renderOrder = 2;
+    grp.add(m);
+  });
+  const minY = Math.min(...geos.map(g => g.boundingBox.min.y));
+  grp.scale.setScalar(scale);
+  grp.position.y = TOP - minY * scale + (st.egg ? .02 : 0);
+  // recentre sur le corps (les antennes déportent la boîte englobante)
+  if (!st.egg) grp.children.forEach(m => m.position.x = -.35);
+  return grp;
+}
+const labels = [];
+function rebuild() {
+  shrimpGroup.clear();
+  labels.length = 0;
+  $('labels').innerHTML = '';
+  if (!overview) {
+    buildPedestal(2.4, 1.3);
+    const st = STAGES.find(s => s.key === stage);
+    const sp = specimen(st, st.egg ? 1.1 : 1.45);
+    shrimpGroup.add(sp);
+    $('caption').textContent = `${GENERA.car.short} ${nameOf()} — ${st.name}`;
+    cam.target.set(0, .55, 0);
+  } else {
+    const W = STAGES.length * 1.15 + .4;
+    buildPedestal(W, 1.2);
+    const real = $('real').checked;
+    STAGES.forEach((st, i) => {
+      const sc = real ? .9 * st.real / 25 : (st.egg ? .5 : .75);
+      const sp = specimen(st, Math.max(sc, .015));
+      sp.position.x = -W / 2 + .75 + i * 1.15;
+      sp.userData.stage = st;
+      shrimpGroup.add(sp);
+      const d = document.createElement('div');
+      d.textContent = `${st.name} · ${st.size}`;
+      $('labels').appendChild(d);
+      labels.push([sp, d]);
+    });
+    $('caption').textContent = `${GENERA.car.short} ${nameOf()} — cycle de vie${real ? ' (échelle réelle)' : ''}`;
+    cam.target.set(0, .45, 0);
+  }
+  renderInfo();
+  document.querySelectorAll('#g-stages button').forEach(b => b.classList.toggle('on', !overview && b.dataset.k === stage));
+  $('overview').classList.toggle('on', overview);
+}
+function nameOf() { return variety === 'mutant' ? 'mutante' : (VARIETIES[variety] || EXTRA[variety]).name; }
+function renderInfo() {
+  const g = genome, st = STAGES.find(s => s.key === stage);
+  const bar = (k) => { const d = GENES[k]; const p = (g[k] - d.min) / (d.max - d.min); return `<div class="gene"><span>${d.label}</span><div class="track"><div style="left:0;width:${p * 100}%"></div></div><span class="num">${d.circ ? Math.round(g[k]) + '°' : g[k].toFixed(2)}</span></div>`; };
+  $('g-info').innerHTML = (overview
+    ? `<h2>Cycle de vie</h2><div class="meta">De l'œuf à la mue, la même crevette.</div><p>Œuf ~30 j → bébé de 2 mm → adulte vers 4–5 mois. Une génération prend environ 3 mois en jeu.</p>`
+    : `<h2>${st.name}</h2><div class="meta">${st.age} · ${st.size}</div><p>${st.desc}</p>`) +
+    `<h4>Phénotype : ${Gen.phenotype(g)}</h4>` + ['hue', 'sat', 'dens', 'dark', 'bands', 'stripe', 'spots', 'rili'].map(bar).join('') +
+    `<p class="dimc" style="font-size:12px">Glisser : tourner · molette : zoom. Les couleurs et motifs viennent directement des gènes, comme dans le jeu.</p>`;
+}
+function setVariety(v) {
+  variety = v;
+  if (v !== 'mutant') {
+    const src = VARIETIES[v] || EXTRA[v];
+    genome = Object.assign({}, GENERA[src.genus].base, src.g);
+  }
+  rebuild();
+}
+function mutant() {
+  const r = Math.random;
+  genome = Object.assign({}, GENERA.car.base, {
+    hue: r() * 360, sat: .35 + r() * .65, dens: .45 + r() * .55, dark: r() * .7,
+    stripe: r() < .35 ? .4 + r() * .6 : r() * .2, bands: r() < .6 ? .35 + r() * .6 : r() * .2,
+    spots: r() < .35 ? .3 + r() * .6 : r() * .15, rili: r() < .25 ? .4 + r() * .5 : 0,
+  });
+  seed = 1 + (r() * 1000 | 0);
+  variety = 'mutant';
+  $('variety').value = 'mutant';
+  rebuild();
+}
+
+// ---------- UI ----------
+$('variety').innerHTML = Object.entries(Object.assign({}, EXTRA, VARIETIES)).map(([k, v]) => `<option value="${k}">${GENERA[v.genus].short} ${v.name}</option>`).join('') + '<option value="mutant">Mutante</option>';
+$('variety').value = variety;
+$('variety').onchange = e => e.target.value === 'mutant' ? mutant() : setVariety(e.target.value);
+$('mutant').onclick = mutant;
+$('spin').onclick = () => { spin = !spin; $('spin').classList.toggle('on', spin); };
+$('overview').onclick = () => {
+  overview = !overview;
+  Object.assign(cam, overview ? { dist: 11, yaw: .15, pitch: .32 } : { dist: 4.6, yaw: .75, pitch: .28 });
+  rebuild();
+};
+$('real').onchange = () => overview && rebuild();
+$('pix').onchange = e => { pixel = +e.target.value; resize(); };
+$('g-stages').innerHTML = STAGES.map(s => `<button data-k="${s.key}">${s.name}</button>`).join('');
+document.querySelectorAll('#g-stages button').forEach(b => b.onclick = () => { stage = b.dataset.k; overview = false; rebuild(); });
+addEventListener('keydown', e => {
+  const i = STAGES.findIndex(s => s.key === stage);
+  if (e.key === 'ArrowRight') { stage = STAGES[(i + 1) % STAGES.length].key; overview = false; rebuild(); }
+  if (e.key === 'ArrowLeft') { stage = STAGES[(i + STAGES.length - 1) % STAGES.length].key; overview = false; rebuild(); }
+});
+let drag = null;
+canvas.addEventListener('pointerdown', e => { drag = [e.clientX, e.clientY]; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  cam.yaw -= (e.clientX - drag[0]) * .006; cam.pitch = Math.max(.02, Math.min(1.3, cam.pitch + (e.clientY - drag[1]) * .005));
+  drag = [e.clientX, e.clientY];
+});
+canvas.addEventListener('pointerup', () => drag = null);
+canvas.addEventListener('wheel', e => { e.preventDefault(); cam.dist = Math.max(.6, Math.min(14, cam.dist * (1 + Math.sign(e.deltaY) * .1))); }, { passive: false });
+
+// ---------- Boucle ----------
+let last = performance.now();
+const v3 = new THREE.Vector3();
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  if (spin && !drag) {
+    if (overview) shrimpGroup.children.forEach(c => c.rotation.y += dt * .4);
+    else shrimpGroup.rotation.y += dt * .35;
+  }
+  // légère respiration
+  shrimpGroup.children.forEach((c, i) => c.children.forEach(m => m.position.y = Math.sin(now / 600 + i) * .004 / c.scale.y));
+  updateCam();
+  renderer.render(scene, camera);
+  for (const [sp, d] of labels) {
+    v3.set(sp.position.x, .02, .62).project(camera);
+    d.style.left = ((v3.x + 1) / 2 * innerWidth) + 'px';
+    d.style.top = ((1 - v3.y) / 2 * innerHeight) + 'px';
+  }
+}
+if (overview) cam.dist = 7;
+resize();
+setVariety('car_crs');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
