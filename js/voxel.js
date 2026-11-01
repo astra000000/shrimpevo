@@ -30,6 +30,7 @@ const Voxel = (() => {
     }
     if (a.part === 1) return [a.hl ? [.75, .55, .55] : EYE, 1];
     if (a.part === 3) return [mix(EGG, [.3, .2, .05], hash(a.i, a.j, a.k) * .4), 1];
+    if (a.part === 7) return a.t > .55 ? [[.9, .12, .1], 1] : [mix(CLEAR, Gen.color(g), Math.max(.3, g.dens)), .8];   // rostre « nez rouge »
     const base = Gen.color(g);
     let d = g.dens * ex;
     const bands = sst(.15, .5, g.bands);
@@ -67,8 +68,9 @@ const Voxel = (() => {
     const key = (i, j, k) => ((i + 512) * 1024 + (j + 512)) * 1024 + (k + 512);
     const put = (i, j, k, a, force) => { const kk = key(i, j, k); if (!force && vox.has(kk)) return; vox.set(kk, Object.assign({ i, j, k }, a)); };
     const at = (x, y, z, a, force) => put(Math.floor(x / vs), Math.floor(y / vs), Math.floor(z / vs), Object.assign({ z }, a), force);
-    const slim = o.sex === 'M' ? .88 : 1, belly = o.sex === 'F' ? 1.18 : 1;
-    const eyeS = o.eyeScale || 1, ant = o.antenna ?? 1;
+    const F = o.form || {};
+    const slim = (o.sex === 'M' ? .88 : 1) * (F.slim || 1), belly = o.sex === 'F' ? 1.18 : 1;
+    const eyeS = o.eyeScale || 1, ant = (o.antenna ?? 1) * (F.ant || 1);
 
     // corps
     for (let i = Math.floor(-.01 * N); i <= Math.ceil(N); i++) {
@@ -114,8 +116,9 @@ const Voxel = (() => {
       }
     };
     const ch = cy(.95);
-    // rostre
-    line([[.93, ch + .03, 0], [1.13, ch + .065, 0]], 2);
+    // rostre (très long et rouge au bout chez Caridina gracilirostris)
+    if (F.ros) line([[.93, ch + .03, 0], [1.12, ch + .07, 0], [1.38, ch + .09, 0], [1.6, ch + .12, 0]], 7, 2);
+    else line([[.93, ch + .03, 0], [1.13, ch + .065, 0]], 2);
     for (const s of [-1, 1]) {
       // yeux pédonculés
       const ec = [.93, cy(.93) + .045, s * .072 * Math.max(1, eyeS * .9)], er = .027 * eyeS;
@@ -130,6 +133,15 @@ const Voxel = (() => {
       line([[.97, ch + .02, .02 * s], [1.08, ch + .06, .04 * s], [1.17, ch + .04, .08 * s]], 6, 1, [4, s + 2]);
       // maxillipèdes
       line([[.94, ch - .05, .02 * s], [1.04, ch - .09, .04 * s], [1.08, ch - .07, .05 * s]], 2, 1, [4, s * 3]);
+      // grands bras à pinces (Macrobrachium) : la 2e paire de pattes, aussi longue que le corps
+      if (F.arms) {
+        const u = .86, r = rad(u) * slim, c = cy(u);
+        const p0 = [u, c - r * .6, s * r * .5], p1 = [u + .18, c - r * .2, s * (r + .14)], p2 = [u + .5, c - .02, s * (r + .2)], p3 = [u + .78, c + .02, s * (r + .14)];
+        line([p0, p1, p2, p3], 2, 2, [1, s > 0 ? 1.2 : 4.3]);
+        // pince : deux doigts
+        line([p3, [p3[0] + .12, p3[1] + .03, p3[2] - s * .02]], 2, 2, [1, s > 0 ? 1.2 : 4.3]);
+        line([p3, [p3[0] + .1, p3[1] - .03, p3[2] + s * .02]], 2, 1, [1, s > 0 ? 1.2 : 4.3]);
+      }
       // pattes marcheuses
       for (let k = 0; k < 5; k++) {
         const u = .63 + k * .065, r = rad(u) * slim, c = cy(u);

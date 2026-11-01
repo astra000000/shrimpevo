@@ -75,7 +75,7 @@ const Gen = (() => {
 
   // ---------- Phénotype ----------
   function express(dna, genus) {
-    const P = polyValues(dna), base = GENERA[genus].base;
+    const G = GENERA[genus] || GENERA.neo, P = polyValues(dna), base = G.base;
     const hom = k => dose(dna, k) === 2;
     const g = {};
     let dens = .1 + .9 * P.dens, dark = P.dark * .4, sat = .85, hue, spots = 0;
@@ -83,7 +83,11 @@ const Gen = (() => {
     if (hom('W')) { hue = 40; sat = .04; dark = 0; dens = Math.max(dens, .75); }
     else if (!pig) {
       if (hom('K')) { hue = 0; sat = .1; dark = .93; }
-      else { hue = genus === 'neo' ? 30 : 200; sat = .32; dark = .45 + dark * .5; spots = .3; dens *= .8; } // type sauvage
+      else { // type sauvage : propre à chaque espèce
+        const wd = G.wild;
+        hue = wd.hue; sat = wd.sat; dark = wd.dark + dark * .5; spots = wd.spots || 0;
+        dens = wd.dens != null ? wd.dens * (.75 + .5 * P.dens) : dens * .8;
+      }
     } else {
       hue = PIGMENT_HUE[pig.length > 2 ? '' : pig] ?? 20;
       if (pig.length > 2) { sat = .5; dark += .45; }
@@ -98,6 +102,9 @@ const Gen = (() => {
     g.rili = [0, .35, .75][dose(dna, 'L')];
     g.spots = Math.min(1, spots + (hom('M') ? .55 : 0));
     for (const k of ['tOpt', 'tTol', 'phOpt', 'phTol', 'ghOpt', 'ghTol', 'size', 'life', 'fert', 'growth']) g[k] = fix(k, base[k] + P[k]);
+    // la taille polygénique est calée sur une crevette de 25 mm : on la remet à l'échelle de l'espèce
+    if (genus !== 'neo' && genus !== 'car') g.size = fix('size', base.size * (1 + P.size / 25));
+    g.salOpt = G.salt[0]; g.salTol = G.salt[1];
     return g;
   }
 
@@ -154,7 +161,8 @@ const Gen = (() => {
     const fT = fitTemp(g, w.temp);
     const fP = fitRange(g.phOpt, g.phTol, w.ph, .2);
     const fG = fitRange(g.ghOpt, g.ghTol, w.gh, 1);
-    return { fT, fP, fG, all: fT * fP * fG };
+    const fS = fitRange(g.salOpt || 0, g.salTol ?? 4, w.sal || 0, 2);
+    return { fT, fP, fG, fS, all: fT * fP * fG * fS };
   }
   // Coût du généralisme : être tolérant à tout réduit la fertilité
   function fertCost(g) {

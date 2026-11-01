@@ -171,7 +171,7 @@ const Guide = (() => {
     el = document.createElement('div');
     el.id = 'guide';
     el.className = 'screen hidden';
-    el.innerHTML = `<div class="book">
+    el.innerHTML = `<div class="book"><button class="xclose book-x" id="gX" title="Fermer">✕</button>
       <div class="book-img" id="gImg"></div>
       <div class="book-txt"><h2 id="gT"></h2><div id="gP"></div></div>
       <div class="book-foot"><button id="gPrev">◀</button><span id="gN"></span><button id="gNext">▶</button><button id="gClose">Fermer</button></div>
@@ -180,6 +180,7 @@ const Guide = (() => {
     $('gPrev').onclick = () => go(page - 1);
     $('gNext').onclick = () => page < PAGES.length - 1 ? go(page + 1) : close();
     $('gClose').onclick = close;
+    $('gX').onclick = close;
     el.onclick = e => { if (e.target === el) close(); };
     // glisser sur mobile
     let x0 = null;

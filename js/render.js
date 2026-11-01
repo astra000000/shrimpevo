@@ -358,6 +358,10 @@ const Render = (() => {
     world.marker.visible = false;
     scene.add(world.marker);
     buildFood();
+    // comportements et escargots (js/life.js)
+    if (!same) Life.reset();
+    Life.attach({ agents, dims, surfY, scene, world, get time() { return time; } });
+    Life.buildSnails();
   }
 
   // Sols mélangés (sable de Loire, galets…) : une couleur de grain au hasard
@@ -777,6 +781,7 @@ const Render = (() => {
       a.food = f;
       return;
     }
+    if (Life.pick(a, sh)) return;
     const r = Math.random();
     const cm = sh.size / 10;
     if (r < .55 || baby && r < .8) {
@@ -798,7 +803,8 @@ const Render = (() => {
   }
   function stepAgent(a, sh, dt) {
     const cm = sh.size / 10;
-    const lazy = sh.berried ? .5 : 1;
+    Life.think(a, sh, dt);
+    const lazy = (sh.berried ? .5 : 1) * (1 + (a.rush || 0));
     if (a.mode === 'graze') {
       a.t -= dt;
       a.swim = 0;
@@ -830,6 +836,7 @@ const Render = (() => {
     let dyaw = ((ty - a.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     a.yaw += dyaw * Math.min(1, dt * 4);
     a.pitch += ((a.mode === 'swim' ? Math.atan2(dy, Math.hypot(dx, dz)) * .5 : 0) - a.pitch) * Math.min(1, dt * 3);
+    if (a.flip) a.pitch = -.9 * Math.sin(a.flip / .35 * Math.PI);   // coup de queue pour fuir
   }
 
   // ---------- Nourriture visible ----------
@@ -921,10 +928,12 @@ const Render = (() => {
     const U = world.shrimpU;
     let sunI, ambI, ambCol, sunCol;
     if (aq) {
-      sunI = .3 + .9 * L; ambI = .35 + .2 * L;
-      sunCol = L > 0 ? new THREE.Color(1, .98, .94) : new THREE.Color(.4, .5, .9);
-      ambCol = L > 0 ? new THREE.Color(.55, .62, .7) : new THREE.Color(.25, .3, .5);
-      world.lamp.material.color.setRGB(.2 + L * .8, .2 + L * .8, .2 + L * .75);
+      const moon = L === 0 && s.eq.moon && s.power;   // LED lunaire : lueur bleue la nuit
+      sunI = moon ? .75 : .3 + .9 * L; ambI = moon ? .45 : .35 + .2 * L;
+      sunCol = L > 0 ? new THREE.Color(1, .98, .94) : moon ? new THREE.Color(.35, .55, 1) : new THREE.Color(.4, .5, .9);
+      ambCol = L > 0 ? new THREE.Color(.55, .62, .7) : moon ? new THREE.Color(.2, .32, .6) : new THREE.Color(.25, .3, .5);
+      if (moon) world.lamp.material.color.setRGB(.25, .4, .9);
+      else world.lamp.material.color.setRGB(.2 + L * .8, .2 + L * .8, .2 + L * .75);
     } else {
       sunI = .1 + 1.1 * L; ambI = .18 + .4 * L;
       const dusk = L > 0 && L < .35;
@@ -1012,7 +1021,7 @@ const Render = (() => {
       let a = agents.get(sh.id);
       if (!a) { a = newAgent(sh); agents.set(sh.id, a); }
       stepAgent(a, sh, dt);
-      if (a.lm != null && sh.molt > a.lm + .5 && sh.size > 8) spawnExuvia(s, sh, a);
+      if (a.lm != null && sh.molt > a.lm + .5 && sh.size > 8) { spawnExuvia(s, sh, a); Life.onMolt(s, sh, a); if (Math.random() < .5) Life.bubble(sh.id, '✨ mue'); }
       a.lm = sh.molt;
       const sc = sh.size / 10;
       tmpE.set(0, a.yaw, a.pitch);
@@ -1036,6 +1045,9 @@ const Render = (() => {
     world.shadows.instanceMatrix.needsUpdate = true;
     world.shadows.material.opacity = .08 + .22 * (s.light || 0);
     updateHatch(s, dt);
+    Life.events(s);
+    Life.updateSnails(s, dt, (s.light || 0) === 0);
+    Life.updateBubbles(projectPx, true);
     updateVoxels(s, sm);
     sm.instanceMatrix.needsUpdate = true;
     ga.iColor.needsUpdate = ga.iPat.needsUpdate = ga.iMisc.needsUpdate = ga.iAnim.needsUpdate = true;
@@ -1462,7 +1474,8 @@ const Render = (() => {
     const antenna = Math.round((.5 + .5 * Math.min(1, size / 20) + (mature && sh.sex === 'M' ? .15 : 0)) * 10) / 10;
     const eyeScale = Math.round((1 + .4 * (1 - Math.min(1, size / 15))) * 10) / 10;
     const sex = mature ? sh.sex : null;
-    return { k: [res, express, +saddle, +eggs, antenna, eyeScale, sex].join(), o: { g: sh.g, seed: sh.id, express, sex, saddle, eggs, antenna, eyeScale, res } };
+    const form = GENERA[sh.genus].form;
+    return { k: [res, express, +saddle, +eggs, antenna, eyeScale, sex, sh.genus].join(), o: { g: sh.g, seed: sh.id, express, sex, saddle, eggs, antenna, eyeScale, res, form } };
   }
   function voxGeo(sh, force) {
     const g = sh.g;
@@ -1731,6 +1744,14 @@ const Render = (() => {
   }
 
   // Position écran d'une crevette (débogage / tests)
+  // Position écran (px CSS) d'un point 3D, ou null s'il est derrière la caméra
+  const projV = new THREE.Vector3();
+  function projectPx(x, y, z) {
+    projV.set(x, y, z).project(camera);
+    if (projV.z > 1) return null;
+    const r = canvas.getBoundingClientRect();
+    return [r.left + (projV.x + 1) / 2 * r.width, r.top + (1 - projV.y) / 2 * r.height];
+  }
   function screenOf(id) {
     const a = agents.get(id);
     if (!a) return null;

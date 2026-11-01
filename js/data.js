@@ -16,8 +16,8 @@ const GENES = {
   phTol:  { min: .2,  max: 2,    sd: .03,  label: 'Tolérance pH', unit: '±', group: 'eau' },
   ghOpt:  { min: 1,   max: 25,   sd: .3,   label: 'GH optimal', unit: '°dGH', group: 'eau' },
   ghTol:  { min: 1,   max: 12,   sd: .15,  label: 'Tolérance GH', unit: '±', group: 'eau' },
-  size:   { min: 14,  max: 42,   sd: .5,   label: 'Taille adulte', unit: 'mm', group: 'vie' },
-  life:   { min: 180, max: 1000, sd: 10,   label: 'Longévité', unit: 'j', group: 'vie' },
+  size:   { min: 8,   max: 90,   sd: .5,   label: 'Taille adulte', unit: 'mm', group: 'vie' },
+  life:   { min: 180, max: 4000, sd: 10,   label: 'Longévité', unit: 'j', group: 'vie' },
   fert:   { min: .3,  max: 2.5,  sd: .04,  label: 'Fertilité', group: 'vie' },
   growth: { min: .4,  max: 2.2,  sd: .035, label: 'Croissance', group: 'vie' },
 };
@@ -25,18 +25,85 @@ const GENE_KEYS = Object.keys(GENES);
 const VISUAL_GENES = ['hue', 'sat', 'dens', 'dark', 'stripe', 'bands', 'spots', 'rili'];
 
 // Base physiologique par genre (les variétés ne changent que l'apparence)
+// minVol : volume conseillé (L) · salt : [optimum, tolérance] de salinité des adultes (g/L)
+// larvae : 'brackish' = larves qui ne survivent qu'en eau saumâtre (≥ LARVA_SALT g/L), 'tiny' = larves fragiles
+// territorial / predator : comportement · algae : broute algues et vitres · school : nage en groupe
+// wild : couleur du type sauvage · form : silhouette voxel (ros rostre, arms grands bras, ant antennes, slim)
+const LARVA_SALT = 10;
 const GENERA = {
   neo: {
     name: 'Neocaridina davidi', short: 'Neocaridina',
     base: { tOpt: 23, tTol: 6, phOpt: 7.3, phTol: .9, ghOpt: 10, ghTol: 6, size: 28, life: 520, fert: 1, growth: 1 },
-    clutch: 24, gestation: 28,
+    clutch: 24, gestation: 28, minVol: 12, salt: [0, 4],
+    wild: { hue: 30, sat: .32, dark: .45, spots: .3 },
+    desc: 'Robuste et prolifique : la crevette idéale pour débuter.',
   },
   car: {
     name: 'Caridina cantonensis', short: 'Caridina',
     base: { tOpt: 22, tTol: 3.5, phOpt: 6.3, phTol: .55, ghOpt: 5, ghTol: 2.5, size: 25, life: 560, fert: .85, growth: .9 },
-    clutch: 22, gestation: 30,
+    clutch: 22, gestation: 30, minVol: 20, salt: [0, 3],
+    wild: { hue: 200, sat: .32, dark: .45, spots: .3 },
+    desc: 'Eau douce et acide (soil + osmosée), plus fragile, plus chère.',
+  },
+  amano: {
+    name: 'Caridina multidentata', short: 'Amano',
+    base: { tOpt: 23, tTol: 6, phOpt: 7, phTol: 1, ghOpt: 9, ghTol: 7, size: 45, life: 1100, fert: .9, growth: .8 },
+    clutch: 60, gestation: 35, minVol: 30, salt: [0, 8], larvae: 'brackish', algae: 3,
+    wild: { hue: 35, sat: .22, dark: .35, spots: .55, dens: .55 },
+    form: { slim: .9, ant: .8 },
+    desc: "La meilleure mangeuse d'algues. Larves en eau saumâtre : ne se reproduit que si tu mets la femelle grainée dans un bac salé.",
+  },
+  halo: {
+    name: 'Halocaridina rubra', short: 'Halocaridina',
+    base: { tOpt: 24, tTol: 5, phOpt: 8, phTol: .6, ghOpt: 12, ghTol: 8, size: 12, life: 3600, fert: .45, growth: .5 },
+    clutch: 7, gestation: 40, minVol: 12, salt: [18, 9], algae: 1.5,
+    wild: { hue: 356, sat: .8, dark: .1, dens: .85 },
+    form: { ant: .6, slim: 1.05 },
+    desc: "Opae ula d'Hawaï : petite, rouge, vit plus de 10 ans… en eau saumâtre (sel marin, ≈ 18 g/L).",
+  },
+  macro: {
+    name: 'Macrobrachium (longs bras)', short: 'Macrobrachium',
+    base: { tOpt: 26, tTol: 4, phOpt: 7.3, phTol: .9, ghOpt: 10, ghTol: 6, size: 70, life: 1100, fert: 1, growth: .7 },
+    clutch: 50, gestation: 21, minVol: 60, salt: [0, 10], larvae: 'brackish', territorial: 1, predator: true,
+    wild: { hue: 32, sat: .3, dark: .55, spots: .25, dens: .7 },
+    form: { arms: 1, ant: 1.1 },
+    desc: 'Grande et territoriale : chasse et mange les crevettes plus petites. À garder seule.',
+  },
+  atya: {
+    name: 'Atyaephyra desmarestii', short: 'Atyaephyra',
+    base: { tOpt: 18, tTol: 8, phOpt: 7.6, phTol: .9, ghOpt: 13, ghTol: 7, size: 30, life: 700, fert: 1.1, growth: 1 },
+    clutch: 45, gestation: 25, minVol: 30, salt: [0, 6], larvae: 'tiny',
+    wild: { hue: 75, sat: .2, dark: .3, dens: .3, spots: .2 },
+    form: { slim: .82 },
+    desc: "Crevette d'Europe : supporte le froid, parfaite en bassin. Larves minuscules : beaucoup de pertes sans mousse ni poudre.",
+  },
+  rhino: {
+    name: 'Caridina gracilirostris', short: 'Rhino',
+    base: { tOpt: 25, tTol: 4, phOpt: 7.5, phTol: .8, ghOpt: 10, ghTol: 6, size: 38, life: 700, fert: .8, growth: .9 },
+    clutch: 40, gestation: 28, minVol: 40, salt: [0, 8], larvae: 'brackish', school: true,
+    wild: { hue: 0, sat: .1, dark: .1, dens: .25 },
+    form: { ros: 1, slim: .85 },
+    desc: 'Crevette « nez rouge » au très long rostre. Nage en groupe. Larves en eau saumâtre.',
   },
 };
+const GENUS_ORDER = ['neo', 'car', 'amano', 'atya', 'rhino', 'halo', 'macro'];
+
+// Escargots : une population par espèce et par bac. eat : ce qu'ils nettoient · breed : reproduction en eau douce
+const SNAILS = {
+  nerite:   { name: 'Néritine', price: 4, minVol: 12, eat: { glass: 1, algae: 1 }, breed: 0, load: .15, color: [.25, .2, .1], stripe: [.85, .7, .2], size: 1.4, glass: true,
+              desc: 'Nettoie vitres et algues mieux que tout. Ne se reproduit pas en eau douce (mais pond des petits œufs blancs).' },
+  ramshorn: { name: 'Planorbe', price: 1, minVol: 10, eat: { food: 1, det: .6 }, breed: .03, load: .05, color: [.6, .2, .15], size: .8,
+              desc: 'Mange les restes : prolifère si tu nourris trop. Un bon indicateur de suralimentation.' },
+  mts:      { name: 'Mélanoïde', price: 1, minVol: 10, eat: { det: 1.3 }, breed: .015, load: .05, color: [.45, .38, .3], stripe: [.25, .2, .15], size: .9, burrow: true,
+              desc: "Fouille le sol, l'aère et mange les déchets. Sort surtout la nuit." },
+  mystery:  { name: 'Ampullaire', price: 5, minVol: 30, eat: { food: 1.5, veg: 1, det: .4 }, breed: .004, load: .5, color: [.85, .65, .2], size: 2.4,
+              desc: 'Gros escargot doré : nettoie les restes, mais salit plus que les autres.' },
+  assassin: { name: 'Escargot assassin', price: 3, minVol: 20, eat: { food: .4 }, hunt: 1, breed: .003, load: .1, color: [.85, .7, .2], stripe: [.2, .12, .05], size: 1.2,
+              desc: 'Mange les autres escargots : règle une invasion de planorbes. Ne touche pas aux crevettes.' },
+};
+
+// Récompenses exclusives du concours hebdo (top 3) : des décors introuvables en boutique
+const CONTEST_DECOR = ['trophy_gold', 'trophy_silver', 'trophy_bronze', 'chest', 'statue', 'arch', 'shell'];
 
 // ---------- Génétique mendélienne ----------
 // Couleurs et motifs : un locus = 2 allèles, '+' = type sauvage.
@@ -89,6 +156,12 @@ const VARIETIES = {
   car_crs:    { genus: 'car', name: 'Crystal Red',   loci: { R: 'rr', N: 'NN' },  poly: { dens: .85, bandW: .45 }, price: 10 },
   car_cbs:    { genus: 'car', name: 'Crystal Black', loci: { K: 'kk', N: 'NN' },  poly: { dens: .88, bandW: .45 }, price: 12 },
   car_bolt:   { genus: 'car', name: 'Blue Bolt',     loci: { B: 'bb', S: 'SS' },  poly: { dens: .93, dark: .05, bandW: .6 }, price: 25 },
+  car_tiger:  { genus: 'car', name: 'Tiger',         loci: { M: 'mm', S: '+S' },  poly: { dens: .6, dark: .35 }, price: 8 },
+  amano:      { genus: 'amano', name: 'Amano',           loci: {}, poly: { dens: .5 },  price: 4 },
+  atya:       { genus: 'atya',  name: 'Atyaephyra',      loci: {}, poly: { dens: .4 },  price: 3 },
+  rhino:      { genus: 'rhino', name: 'Rhino nez rouge', loci: {}, poly: { dens: .3 },  price: 6 },
+  halo:       { genus: 'halo',  name: 'Opae ula',        loci: {}, poly: { dens: .85 }, price: 7 },
+  macro:      { genus: 'macro', name: 'Longs bras',      loci: {}, poly: { dens: .6 },  price: 9 },
 };
 
 // Plantes. r : croissance/jour, up : absorption azote (mg N/L/h à couverture 1), cover : refuge pour juvéniles,
@@ -185,6 +258,14 @@ const DECOR = {
   spider: { name: 'Racine spider wood', price: 10, kind: 'spider', color: [.55, .42, .3], surface: .2, tannin: .04, biofilm: .5, cover: .15, desc: 'Branches fines : abris et biofilm.' },
   cholla: { name: 'Bois de cholla', price: 4, kind: 'cholla', color: [.66, .55, .38], surface: .15, tannin: .02, biofilm: .8, desc: 'Le régal des crevettes : plein de biofilm.' },
   tube:   { name: 'Abri en céramique', price: 3, kind: 'tube', color: [.62, .33, .2], surface: .1, cover: .12, desc: 'Cachette pour les bébés et les crevettes en mue.' },
+  // exclusifs : gagnés au concours hebdo, jamais en boutique
+  trophy_gold:   { name: 'Trophée d\'or', excl: true, kind: 'trophy', color: [1, .78, .2], surface: .05, desc: '1re place du concours de la semaine.' },
+  trophy_silver: { name: 'Trophée d\'argent', excl: true, kind: 'trophy', color: [.8, .82, .86], surface: .05, desc: '2e place du concours de la semaine.' },
+  trophy_bronze: { name: 'Trophée de bronze', excl: true, kind: 'trophy', color: [.75, .45, .22], surface: .05, desc: '3e place du concours de la semaine.' },
+  chest:  { name: 'Coffre au trésor', excl: true, kind: 'chest', color: [.45, .28, .14], surface: .1, cover: .1, desc: 'Récompense du concours : s\'ouvre et lâche des bulles.' },
+  statue: { name: 'Statue de crevette dorée', excl: true, kind: 'statue', color: [1, .78, .25], surface: .08, desc: 'Récompense du concours.' },
+  arch:   { name: 'Arche de corail', excl: true, kind: 'arch', color: [.9, .45, .4], surface: .3, calc: .1, cover: .1, desc: 'Récompense du concours : abri et bactéries.' },
+  shell:  { name: 'Coquillage géant', excl: true, kind: 'shell', color: [.95, .85, .75], surface: .1, cover: .12, desc: 'Récompense du concours : une cachette nacrée.' },
 };
 
 const WATERS = {
@@ -195,6 +276,7 @@ const WATERS = {
   ro:       { name: 'Osmosée pure',              gh: .2, kh: .1, no3: 0 },
 };
 const RAIN = { gh: .3, kh: .2, no3: 1 };
+const SALT_DOSE = 2; // g/L ajoutés par dose de sel marin
 
 const FILTERS = {
   none:     { name: 'Aucun',            bact: .3, flow: 0,   suck: 0 },
@@ -226,6 +308,7 @@ const SHOP = {
   heater:   { cat: 'Équipement', name: 'Chauffage', price: 25, eq: 'heater' },
   ledPro:   { cat: 'Équipement', name: 'Rampe LED pro', price: 50, eq: 'ledPro', desc: 'Intensité jusqu\'à 100 % (LED de base : 60 %).' },
   co2:      { cat: 'Équipement', name: 'Kit CO2', price: 80, eq: 'co2' },
+  moon:     { cat: 'Équipement', name: 'LED lunaire', price: 12, eq: 'moon', desc: 'Lueur bleue la nuit : on voit les crevettes nocturnes, les mélanoïdes sortir du sol…' },
   air:      { cat: 'Équipement', name: 'Bulleur', price: 10, eq: 'air' },
   ato:      { cat: 'Équipement', name: 'Osmolateur', price: 70, eq: 'ato', desc: 'Remet de l\'eau osmosée automatiquement (nécessite l\'osmoseur).' },
   solar:    { cat: 'Équipement', name: 'Pompe à air solaire (bassin)', price: 30, eq: 'solar' },
@@ -236,6 +319,7 @@ const SHOP = {
   osmo:     { cat: 'Eau', name: 'Osmoseur', price: 120, tool: 'osmo', desc: 'Débloque l\'eau osmosée pure.' },
   saltsGH:  { cat: 'Eau', name: 'Sels GH+ (30 utilisations)', price: 12, use: 'saltsGH', qty: 30, desc: 'Osmosée + GH (Caridina).' },
   saltsGHKH:{ cat: 'Eau', name: 'Sels GH/KH+ (30 utilisations)', price: 12, use: 'saltsGHKH', qty: 30, desc: 'Osmosée + GH + KH (Neocaridina).' },
+  salt:     { cat: 'Eau', name: 'Sel marin (40 doses)', price: 10, use: 'salt', qty: 40, desc: 'Chaque dose : +2 g/L. Pour Halocaridina (≈ 18 g/L) et les bacs à larves (≥ 10 g/L).' },
   bacteria: { cat: 'Eau', name: 'Bactéries en bouteille', price: 15, use: 'bacteria', qty: 1, desc: 'Accélère le cyclage d\'un bac neuf.' },
   granules: { cat: 'Nourriture', name: 'Granulés (60 portions)', price: 8, use: 'granules', qty: 60 },
   powder:   { cat: 'Nourriture', name: 'Poudre bébés (40 portions)', price: 10, use: 'powder', qty: 40 },
@@ -243,7 +327,8 @@ const SHOP = {
   trap:     { cat: 'Soins', name: 'Piège à planaires', price: 15, tool: 'trap' },
   rasbora:  { cat: 'Poissons', name: 'Micro rasbora', price: 4, fish: 1 },
 };
-for (const k in DECOR) SHOP['d_' + k] = { cat: 'Décor', name: DECOR[k].name, price: DECOR[k].price, deco: k, desc: DECOR[k].desc };
+for (const k in SNAILS) SHOP['s_' + k] = { cat: 'Escargots', name: SNAILS[k].name, price: SNAILS[k].price, snail: k, desc: `${SNAILS[k].desc} Volume conseillé : ${SNAILS[k].minVol} L.` };
+for (const k in DECOR) if (!DECOR[k].excl) SHOP['d_' + k] = { cat: 'Décor', name: DECOR[k].name, price: DECOR[k].price, deco: k, desc: DECOR[k].desc };
 for (const k in PLANTS) SHOP['p_' + k] = { cat: 'Plantes', name: PLANTS[k].name, price: PLANTS[k].price, plant: k, desc: plantDesc(PLANTS[k]) };
 // prix du sol pour 30 L
 const SUB_PRICE = Object.fromEntries(Object.entries(SUBSTRATES).map(([k, v]) => [k, v.price]));

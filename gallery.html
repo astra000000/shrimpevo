@@ -229,7 +229,7 @@ $('overview').onclick = () => {
 $('real').onchange = () => overview && rebuild();
 // toucher le titre (ou le panneau replié) ouvre/replie les infos ; replié par défaut sur petit écran
 if (innerWidth <= 820) $('g-info').classList.add('min');
-$('g-info').onclick = e => { if (e.target.tagName === 'H2' || $('g-info').classList.contains('min')) $('g-info').classList.toggle('min'); };
+$('g-info').onclick = () => $('g-info').classList.toggle('min');
 $('pix').onchange = e => { pixel = +e.target.value; resize(); };
 $('g-stages').innerHTML = STAGES.map(s => `<button data-k="${s.key}">${s.name}</button>`).join('');
 document.querySelectorAll('#g-stages button').forEach(b => b.onclick = () => { stage = b.dataset.k; overview = false; rebuild(); });

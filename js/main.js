@@ -81,6 +81,11 @@ const Main = (() => {
     Render.frame(UI.tank, dtR);
     Sound.update(UI.tank, Render.cam.dist);
     UI.refreshAll(false);
+    for (const a of Achievements.check(W)) {
+      UI.toast(`🏆 Succès débloqué : ${a.ic} ${a.name}`, 'mut');
+      Sound.coin();
+      Notify.send('🏆 ShrimpEvo', `Succès : ${a.name}`, 'ach-' + a.id);
+    }
     if (rate) W.realLast += (want - Math.max(0, hours)) / rate * 3.6e6;
     if (now - lastSave > 20000) { Save.store(W); lastSave = now; }
     if (W.over && !W._overShown) {

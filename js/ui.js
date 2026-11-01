@@ -168,6 +168,12 @@ const UI = (() => {
       else if (neo && $('fSub').value === 'soil' && w.kh < 1) h = 'Soil + osmosée : pH très acide, les Neocaridina vont souffrir… ou s\'adapter.';
       else if (envSel() === 'pond' && car) h = 'Des Caridina en bassin ? Elles détestent le froid. Bonne chance.';
       else if (!Object.values(counts).some(Boolean)) h = 'Aucune crevette : ajoute-en au moins quelques-unes.';
+      if (!h) {
+        const vol = +$('fVol').value;
+        const g = Object.entries(counts).map(([k, n]) => n && GENERA[VARIETIES[k].genus]).find(G => G && G.minVol > vol);
+        if (g) h = `${g.short} : ${g.minVol} L conseillés, ce bac est trop petit.`;
+        else if (Object.entries(counts).some(([k, n]) => n && GENERA[VARIETIES[k].genus].salt[0] > 0)) h = 'Halocaridina : le bac sera salé (≈ 18 g/L). Pas de crevettes d\'eau douce avec elles !';
+      }
       $('setupHint').textContent = h;
     };
     document.querySelectorAll('input[name=env]').forEach(r => r.onchange = refreshEnv);
@@ -277,6 +283,7 @@ const UI = (() => {
         <div class="eqrow"><label class="chk"><input type="checkbox" id="eLed"${eq.ledPro ? ' checked' : ''}> LED pro${own('ledPro')}</label></div>
         <div class="eqrow"><label class="chk"><input type="checkbox" id="eCO2"${eq.co2 ? ' checked' : ''}> CO2</label><label class="chk"><input type="checkbox" id="eAir"${eq.air ? ' checked' : ''}> Bulleur</label></div>
         <div class="eqrow"><label class="chk"><input type="checkbox" id="eAto"${eq.ato ? ' checked' : ''}> Osmolateur</label><small>remet de l'osmosée</small></div>
+        <div class="eqrow"><label class="chk"><input type="checkbox" id="eMoon"${eq.moon ? ' checked' : ''}> 🌙 LED lunaire${own('moon')}</label><small>lueur la nuit</small></div>
         ${career() ? `<div class="eqrow"><label class="chk"><input type="checkbox" id="ePh"${eq.probePh ? ' checked' : ''}> Sonde pH</label><label class="chk"><input type="checkbox" id="eAll"${eq.probeAll ? ' checked' : ''}> Contrôleur</label></div>` : ''}`;
       const set = (patch, input) => {
         const err = Economy.setEquip(W, s, patch);
@@ -292,6 +299,7 @@ const UI = (() => {
       $('eCO2').onchange = e => set({ co2: e.target.checked }, e.target);
       $('eAir').onchange = e => set({ air: e.target.checked }, e.target);
       $('eAto').onchange = e => set({ ato: e.target.checked }, e.target);
+      $('eMoon').onchange = e => set({ moon: e.target.checked }, e.target);
       if (career()) { $('ePh').onchange = e => set({ probePh: e.target.checked }, e.target); $('eAll').onchange = e => set({ probeAll: e.target.checked }, e.target); }
     } else {
       el.innerHTML = `
@@ -322,6 +330,12 @@ const UI = (() => {
         ['Légumes', () => (Sim.A.feed(W, s, 'veg'), Sound.plop())],
         [`Poudre${left('powder')}`, () => need('powder', 'poudre')() && (Sim.A.feed(W, s, 'powder'), Sound.plop())]]],
       ['Eau', [['Changer l\'eau…', waterModal], ['Compléter', topOffModal], ['Siphonner', () => Sim.A.siphon(W, s)],
+        ...(career() && !W.inv.salt ? [] : [[`🧂 Sel +${SALT_DOSE} g/L${left('salt')}`, () => {
+          const doses = Math.max(1, Math.ceil(s.cfg.volume / 30));
+          if (career() && (W.inv.salt || 0) < doses) return toast(`Il faut ${doses} doses de sel pour ${s.cfg.volume} L.`, 'warn');
+          if (career()) W.inv.salt -= doses;
+          Sim.A.salt(W, s, SALT_DOSE); buildActions();
+        }]]),
         ...(W.tanks.length > 1 ? [['🧫 Ensemencer…', seedModal]] : [])]],
       ...(W.inv.vial ? [['Départ', [['🧪 Fiole de départ', () => {
         if (!confirm(`Fiole de départ (une seule par partie) : ${s.name} sera cyclé tout de suite. La verser ici ?`)) return;
@@ -333,7 +347,7 @@ const UI = (() => {
         [`Anti-parasites${left('fenben')}`, () => confirm('Fenbendazole : tue hydres et planaires en 4 jours, léger stress pour les crevettes. Lancer ?') && need('fenben', 'fenbendazole')() && Sim.A.treat(W, s, 'fenben')],
         ['Piège planaires', () => { if (career() && !W.inv.trap) return toast('Achète un piège à planaires.', 'warn'); Sim.A.treat(W, s, 'trap'); }],
         ...(career() && W.inv.bacteria ? [[`Bactéries (${W.inv.bacteria})`, () => need('bacteria', 'bactéries')() && Sim.A.addBacteria(W, s)]] : [])]],
-      ...(career() ? [] : [['Ajouter', [['Crevettes…', () => shopModal('Crevettes')], ['Plantes…', () => shopModal('Plantes')], ['Rasbora +1', () => Sim.A.fish(W, s, 1)], ['−1', () => s.pred.fish > 0 && Sim.A.fish(W, s, -1)]]]]),
+      ...(career() ? [] : [['Ajouter', [['Crevettes…', () => shopModal('Crevettes')], ['Escargots…', () => shopModal('Escargots')], ['Plantes…', () => shopModal('Plantes')], ['Rasbora +1', () => Sim.A.fish(W, s, 1)], ['−1', () => s.pred.fish > 0 && Sim.A.fish(W, s, -1)]]]]),
       ...(career() && s.pred.fish ? [['Poissons', [['Rasbora −1', () => Sim.A.fish(W, s, -1)]]]] : []),
     ];
     for (const [name, btns] of groups) {
@@ -491,6 +505,8 @@ const UI = (() => {
         <button id="mSave">💾 Sauvegarder</button>
         ${hc ? '' : '<button id="mExport" title="Pour garder une copie ou passer sur un autre appareil (Importer sur l\'écran titre)">⬇ Exporter la sauvegarde</button>'}
         <button id="mGuide">📖 Guide du débutant</button>
+        <button id="mAch">🏆 Succès (${Achievements.count(W)}/${Achievements.LIST.length})</button>
+        <button id="mNotif">${Notify.on ? '🔔 Notifications : activées' : '🔕 Notifications : désactivées'}</button>
         <button id="mQuit">↩ Écran titre</button>
         <button id="mHelp">❓ Aide</button>
       </div>
@@ -506,23 +522,49 @@ const UI = (() => {
       $('mSave').onclick = () => { Save.store(W); toast('Partie sauvegardée.'); closeModal(); };
       if (!hc) $('mExport').onclick = () => { Save.store(W); Save.exportFile(W); };
       $('mGuide').onclick = () => { closeModal(); Guide.open(); };
+      $('mAch').onclick = achModal;
+      $('mNotif').onclick = async () => {
+        if (Notify.on) { Notify.disable(); toast('Notifications désactivées.'); }
+        else { const err = await Notify.enable(); toast(err || 'Notifications activées : naissances, alertes, ventes… quand le jeu est en arrière-plan.', err ? 'warn' : ''); }
+        menuModal();
+      };
       $('mQuit').onclick = () => { Save.store(W); closeModal(); Main.stop(); showTitle(); };
       $('mHelp').onclick = () => $('mHelpBox').classList.toggle('hidden');
       $('mVol').oninput = e => Sound.setVolume(+e.target.value);
     });
   }
 
+  function achModal() {
+    Achievements.check(W, true);
+    const got = W.ach || {};
+    modal(`<h2>🏆 Succès <small class="dimc">${Achievements.count(W)} / ${Achievements.LIST.length}</small></h2>
+      <div class="ach-grid">${Achievements.LIST.map(a => `<div class="ach${got[a.id] != null ? ' on' : ''}" title="${esc(a.desc)}">
+        <span class="ic">${got[a.id] != null ? a.ic : '🔒'}</span><b>${esc(a.name)}</b><small>${esc(a.desc)}${got[a.id] != null ? `<br>jour ${Math.floor(got[a.id] / 24) + 1}` : ''}</small></div>`).join('')}</div>`, null, true);
+  }
+
   // ---------- Boutique ----------
-  const SHOP_CATS = ['Bacs', 'Crevettes', 'Équipement', 'Tests', 'Eau', 'Nourriture', 'Soins', 'Plantes', 'Décor', 'Poissons'];
+  const SHOP_CATS = ['Bacs', 'Crevettes', 'Escargots', 'Équipement', 'Tests', 'Eau', 'Nourriture', 'Soins', 'Plantes', 'Décor', 'Poissons'];
+  // Conseils d'eau et de volume d'une espèce, avec un avertissement si le bac affiché est trop petit
+  function genusTips(genus, s) {
+    const G = GENERA[genus], b = G.base;
+    const sal = G.salt[0] ? ` Sel ≈ ${G.salt[0]} g/L.` : '';
+    const small = s && s.cfg.volume < G.minVol ? ` <b class="badc">⚠ ${esc(s.name)} (${s.cfg.volume} L) est trop petit.</b>` : '';
+    return `${G.desc} T° ${Math.round(b.tOpt - b.tTol)}-${Math.round(b.tOpt + b.tTol)} °C, pH ${b.phOpt}, GH ${Math.round(Math.max(1, b.ghOpt - b.ghTol))}-${Math.round(b.ghOpt + b.ghTol)}.${sal} <b>Volume conseillé : ${G.minVol} L</b>.${small}`;
+  }
   function shopModal(cat = 'Bacs') {
     const s = T();
     const price = p => career() ? money(p) : 'gratuit';
     let items = '';
     if (cat === 'Crevettes') {
-      items = Object.entries(VARIETIES).map(([k, v]) => `<div class="item"><span class="t"><span class="sw" style="display:inline-block;vertical-align:-2px;background:${swatchOf(varG(k))}"></span> ${GENERA[v.genus].short} ${esc(v.name)}</span>
-        <span class="d">${v.genus === 'car' ? 'Eau douce et acide (GH 4-6, pH 6-6.8).' : 'Robuste (GH 6-15, pH 6.8-8).'} Livrée en colis : à acclimater.</span>
+      let lastG = null;
+      items = Object.entries(VARIETIES).sort((a, b) => GENUS_ORDER.indexOf(a[1].genus) - GENUS_ORDER.indexOf(b[1].genus)).map(([k, v]) => {
+        const head = v.genus !== lastG ? `<h4 class="items-head">${GENERA[v.genus].short} <small class="dimc">${GENERA[v.genus].name}</small></h4><p class="dimc" style="font-size:12px;margin:0 0 4px;grid-column:1/-1">${genusTips(v.genus, s)}</p>` : '';
+        lastG = v.genus;
+        return head + `<div class="item"><span class="t"><span class="sw" style="display:inline-block;vertical-align:-2px;background:${swatchOf(varG(k))}"></span> ${GENERA[v.genus].short} ${esc(v.name)}</span>
+        <span class="d">${career() ? 'Livrée en colis : à acclimater.' : ''}</span>
         <span class="p">${price(v.price)} / crevette</span>
-        <div class="row">${[5, 10, 20].map(n => `<button data-shrimp="${k}" data-n="${n}">+${n}</button>`).join('')}</div></div>`).join('');
+        <div class="row">${(v.genus === 'macro' ? [1, 2, 4] : [5, 10, 20]).map(n => `<button data-shrimp="${k}" data-n="${n}">+${n}</button>`).join('')}</div></div>`;
+      }).join('');
     } else {
       let lastPc = null;
       items = Object.entries(SHOP).filter(([, it]) => it.cat === cat).map(([k, it]) => {
@@ -530,7 +572,7 @@ const UI = (() => {
         const head = pc && pc !== lastPc ? `<h4 class="items-head">${pc}</h4>` : '';
         lastPc = pc;
         const own = career() && (it.eq || it.tool || it.use || it.deco) ? `<span class="own">Possédé : ${it.use ? (W.inv[it.use] || 0) + ' doses' : W.inv[k] || 0}${it.eq ? ` (${Economy.spare(W, k)} libre)` : ''}</span>` : '';
-        const btn = it.tank ? `<button data-tank="${k}">Installer…</button>` : it.plant || it.fish ? `<button data-buy="${k}" ${s ? '' : 'disabled'}>Ajouter à ${s ? esc(s.name) : '—'}</button>` : `<button data-buy="${k}">Acheter</button>`;
+        const btn = it.tank ? `<button data-tank="${k}">Installer…</button>` : it.plant || it.fish || it.snail ? `<button data-buy="${k}" ${s ? '' : 'disabled'}>Ajouter à ${s ? esc(s.name) : '—'}</button>` : `<button data-buy="${k}">Acheter</button>`;
         return head + `<div class="item"><span class="t">${esc(it.name)}</span><span class="d">${esc(it.desc || (it.tank ? (it.tank.env === 'pond' ? 'Dehors : saisons, pluie, gel.' : 'Éclairage LED de base inclus.') : ''))}</span>
           <span class="p">${price(it.price)}${it.tank ? ' + sol' : ''}</span>${own}<div class="row">${btn}</div></div>`;
       }).join('');
@@ -547,6 +589,8 @@ const UI = (() => {
       });
       el.querySelectorAll('[data-shrimp]').forEach(b => b.onclick = () => {
         const k = b.dataset.shrimp, n = +b.dataset.n;
+        const G = GENERA[VARIETIES[k].genus];
+        if (s && s.cfg.volume < G.minVol) toast(`⚠ ${G.short} : ${G.minVol} L conseillés, ${s.name} n'en fait que ${s.cfg.volume}. Elles vont stresser.`, 'warn');
         if (!career() && s) { Sim.A.addShrimp(W, s, k, n); toast(`+${n} ${VARIETIES[k].name} dans ${s.name}`); return; }
         const err = Economy.buyStrain(W, k, n);
         if (err) toast(err, 'warn'); else { closeModal(); bagsModal(); }
@@ -712,7 +756,7 @@ const UI = (() => {
   // Publication : les crevettes partent au marché (elles quittent le bac), payées à chaque vente
   function netPublish(s, list, price, note) {
     const genus = list[0].genus;
-    if (list.some(sh => sh.genus !== genus)) return toast('Une annonce ne peut mélanger Neocaridina et Caridina.', 'warn');
+    if (list.some(sh => sh.genus !== genus)) return toast('Une annonce ne peut pas mélanger deux espèces.', 'warn');
     if (list.length > 50) return toast('50 crevettes maximum par annonce.', 'warn');
     withName(async () => {
       const strains = new Set(list.map(sh => sh.strain));
@@ -720,7 +764,8 @@ const UI = (() => {
       const cls = Gen.colorClass(list[0].g);
       const entry = {
         id: own && own.id.startsWith('u:') ? own.id : `u:${(Online.me || 'x').slice(0, 8)}:${own ? own.id : 'lot' + W.nextUid++}`,
-        name: own ? own.name : cls, author: Online.name, genus, cls: own ? own.cls : cls, dna: list[0].dna,
+        // signature : le créateur de la souche reste l'auteur, même quand elle est revendue
+        name: own ? own.name : cls, author: own && own.source !== 'mine' && own.author && own.author !== 'Animalerie' ? own.author : Online.name, by: Online.name, genus, cls: own ? own.cls : cls, dna: list[0].dna,
         cond: Economy.condOf(list.map(sh => sh.g)), desc: own ? own.desc || '' : note || '', created: 0, source: 'market',
       };
       try {
@@ -742,6 +787,7 @@ const UI = (() => {
       for (const r of rows || []) {
         Economy.earn(W, +r.total);
         W.stats.sold += r.n; W.stats.earned += +r.total;
+        Achievements.flag(W, 'netSold');
         Sim.log(W, `💰 Vente en ligne : ${r.n} × « ${r.strain} » à ${r.buyer_name} pour ${moneyTxt(+r.total)}.`, 'birth', true);
       }
     } catch (e) { console.warn('Encaissement en ligne', e); }
@@ -766,7 +812,7 @@ const UI = (() => {
       <div class="book-detail">
         <canvas id="bkPortrait"></canvas>
         ${mine ? `<div class="row">Nom <input id="bkName" value="${esc(e.name)}" maxlength="40"></div>` : `<h3 style="font-size:16px">${esc(e.name)}</h3>`}
-        <div class="dimc" style="font-size:13px">${GENERA[e.genus].name} · phénotype de référence : <b>${esc(e.cls)}</b> · auteur : ${mine ? 'toi' : esc(e.author)} · créée le jour ${Math.floor(e.created / 24) + 1}</div>
+        <div class="dimc" style="font-size:13px">${GENERA[e.genus].name} · phénotype de référence : <b>${esc(e.cls)}</b> · ✍ créée par ${mine ? 'toi' : `<b>${esc(e.author)}</b>`}${e.by && e.by !== e.author ? ` · vendue par ${esc(e.by)}` : ''} · le jour ${Math.floor(e.created / 24) + 1}</div>
         <h4>Description</h4>
         ${mine ? `<textarea id="bkDesc" placeholder="Origine, croisements, conseils…">${esc(e.desc)}</textarea>` : `<p style="font-size:14px">${esc(e.desc)}</p>`}
         <h4>Conditions de vie (moyenne des fondatrices)</h4>
@@ -936,6 +982,10 @@ const UI = (() => {
       ['Algues', pct(s.algae), cls(s.algae, .4, .7)],
       ['Densité', `${fmt(s.crowd || 0, 1)} /L`, cls(s.crowd || 0, 4, 7)],
     ];
+    const needSalt = s.shrimp.some(sh => GENERA[sh.genus].salt[0] > 0);
+    if ((w.sal || 0) > .05 || needSalt) rows.splice(4, 0, ['Salinité', `${fmt(w.sal || 0, 1)} g/L`, needSalt ? cls(w.sal || 0, 12, 8, true) : cls(w.sal || 0, 3, 6), 'réfractomètre (gratuit)']);
+    const sn = Object.entries(s.snails || {}).filter(([, n]) => n >= 1);
+    if (sn.length) rows.push(['Escargots', sn.map(([k, n]) => `${Math.floor(n)} ${SNAILS[k].name.toLowerCase()}`).join(', '), 'dimc']);
     if (s.pred.hydra >= 1) rows.push(['Hydres', `~${Math.round(s.pred.hydra)}`, 'bad']);
     if (s.pred.plan >= 1) rows.push(['Planaires', `~${Math.round(s.pred.plan)}`, 'bad']);
     if (s.pred.fish > 0) rows.push(['Micro rasboras', `${s.pred.fish}`, s.pred.fishHealth < .5 ? 'warn' : 'dimc', `santé ${pct(s.pred.fishHealth)} · faim ${pct(s.pred.fishHunger)}`]);
@@ -952,6 +1002,10 @@ const UI = (() => {
     if (!career() && s.shrimp.length && s.nh3 > .02) al.push('Ammoniac toxique : change l\'eau');
     if (career() && !s.tests.ph && !s.eq.probeAll) al.push('Eau jamais testée : fais une bandelette');
     if (s.shrimp.some(sh => sh.health < .3)) al.push('Crevettes mal en point : vérifie l\'eau');
+    for (const g in s.small || {}) al.push(`📏 Bac trop petit pour ${GENERA[g].short} (${GENERA[g].minVol} L conseillés)`);
+    if (s.shrimp.some(sh => GENERA[sh.genus].predator) && s.shrimp.some(sh => !GENERA[sh.genus].predator)) al.push('🦞 Macrobrachium avec d\'autres crevettes : elles vont se faire chasser');
+    const berLarv = s.shrimp.find(sh => sh.berried && GENERA[sh.genus].larvae === 'brackish');
+    if (berLarv && (w.sal || 0) < LARVA_SALT) al.push(`🥚 ${GENERA[berLarv.genus].short} grainée : ses larves mourront en eau douce. Bac saumâtre (≥ ${LARVA_SALT} g/L) !`);
     if (W.weather.rain > W.t && !aq) al.push('🌧 Pluie');
     if (W.weather.heat > W.t) al.push('☀️ Canicule');
     if (W.weather.cold > W.t && !aq) al.push('❄️ Vague de froid');
@@ -989,7 +1043,7 @@ const UI = (() => {
         <span>Grainées</span><b>${st.berried}</b>
         <span>Génération max</span><b>${W.stats.maxGen}</b>
         <span>Naissances (tous bacs)</span><b>${W.stats.born}</b>
-        ${st.genus.neo && st.genus.car ? `<span>Neo / Caridina</span><b>${st.genus.neo} / ${st.genus.car}</b>` : ''}
+        ${Object.keys(st.genus).length > 1 ? `<span>Espèces</span><b>${Object.entries(st.genus).map(([g, n]) => `${GENERA[g].short} ${n}`).join(' · ')}</b>` : ''}
       </div>
       <h4>Phénotypes (clic = une crevette au hasard)</h4>
       ${top.map(([k, g]) => `<div class="pheno" data-k="${esc(k)}"><span class="sw" style="background:${cssRGB([g.r / g.n, g.g / g.n, g.b / g.n])}"></span><span style="flex:2">${esc(k)}</span><span class="bar-mini"><div style="width:${g.n / max * 100}%"></div></span><b>${g.n}</b></div>`).join('') || '<div class="dimc">Aucune crevette.</div>'}
@@ -1045,7 +1099,7 @@ const UI = (() => {
     el.innerHTML = `
       <div class="sheet-head"><canvas class="portrait" id="portrait"></canvas>
         <div><b>#${sh.id}</b> ${sh.sex === 'F' ? '♀' : '♂'}<br>${esc(Gen.phenotype(g))}<br><small class="dimc">${GENERA[sh.genus].name}${sh.origin ? ' · ' + esc(sh.origin) : ''}</small>
-        ${sh.strain ? `<br><span class="link" id="openStrain">📖 ${esc(strainName(sh.strain))}</span>` : ''}</div></div>
+        ${sh.strain ? `<br><span class="link" id="openStrain">📖 ${esc(strainName(sh.strain))}</span>${(e => e && e.source !== 'mine' && e.author && e.author !== 'Animalerie' ? ` <small class="dimc">✍ ${esc(e.author)}</small>` : '')(Economy.entryOf(W, sh.strain))}` : ''}</div></div>
       <div class="row"><button id="followBtn" class="${Render.follow ? 'on' : ''}">🎥 Suivre</button>
         <button id="toNet">${net.has(sh.id) ? '✓ Dans l\'épuisette' : '🥅 Épuisette'}</button><button id="closeSel">✕</button></div>
       <div class="stat-grid" style="font-size:13px">
@@ -1222,6 +1276,8 @@ const UI = (() => {
     const d = document.createElement('div');
     d.className = 'toast ' + kind;
     d.textContent = msg;
+    d.title = 'Toucher pour fermer';
+    d.onclick = () => d.remove();
     $('toasts').appendChild(d);
     setTimeout(() => d.remove(), 5000);
     while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
@@ -1241,7 +1297,7 @@ const UI = (() => {
   function refreshAll(force) {
     if (!W) return;
     const now = performance.now();
-    if (W._toasts && W._toasts.length) { for (const t of W._toasts.splice(0)) toast(t.msg, t.kind); }
+    if (W._toasts && W._toasts.length) { for (const t of W._toasts.splice(0)) { toast(t.msg, t.kind); Notify.fromLog(t.msg, t.kind); } }
     if (T() !== shownTank) { switchTank(Math.min(W.cur, Math.max(0, W.tanks.length - 1)), true); return; }
     renderClock();
     renderTankBar();
@@ -1275,6 +1331,21 @@ const UI = (() => {
     };
     $('modalClose').onclick = closeModal;
     $('modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+    $('modalX').onclick = closeModal;
+    // glisser vers le bas depuis le haut de la fenêtre : ferme (mobile)
+    {
+      let y0 = null;
+      $('modalBox').addEventListener('touchstart', e => { y0 = $('modalBox').scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+      $('modalBox').addEventListener('touchend', e => { if (y0 != null && e.changedTouches[0].clientY - y0 > 90) closeModal(); y0 = null; });
+    }
+    // panneaux latéraux sur mobile : toucher l'aquarium les referme
+    $('view').addEventListener('pointerdown', () => document.body.classList.remove('m-left', 'm-right'));
+    document.querySelectorAll('#left, #right').forEach(p => {
+      const x = document.createElement('button');
+      x.className = 'xclose mobile-only'; x.textContent = '✕'; x.title = 'Fermer';
+      x.onclick = () => document.body.classList.remove('m-left', 'm-right');
+      p.prepend(x);
+    });
     document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
     $('btnMenu').onclick = menuModal;
     $('btnShop').onclick = () => shopModal(W.tanks.length ? 'Équipement' : 'Bacs');

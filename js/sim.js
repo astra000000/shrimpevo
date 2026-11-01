@@ -40,6 +40,13 @@ const Sim = (() => {
     if (toast && kind === 'bad') W._alarm = true;
   }
   const tankById = (W, id) => W.tanks.find(t => t.id === id);
+  // Événements pour le rendu (bulles au-dessus des crevettes) ; non sauvegardés
+  function ev(s, e) {
+    const l = s._ev || (s._ev = []);
+    e.seq = s._evSeq = (s._evSeq || 0) + 1;
+    l.push(e);
+    if (l.length > 40) l.shift();
+  }
 
   // ---------- Création ----------
   function makeShrimp(W, genus, dna, o = {}) {
@@ -85,7 +92,8 @@ const Sim = (() => {
     const s = {
       id, name: cfg.name || `${cfg.env === 'pond' ? 'Bassin' : 'Bac'} ${id}`, env: cfg.env, seed: (rnd() * 1e9) | 0,
       cfg: { volume: cfg.volume, substrate: cfg.substrate, water: cfg.water },
-      w: { temp: 20, gh: src.gh, kh: src.kh, ph: 7, tan: 0, no2: 0, no3: src.no3, o2: 8, co2: 3, tannin: sub.earth ? .2 : sub.tannin || 0, level: 1 },
+      w: { temp: 20, gh: src.gh, kh: src.kh, ph: 7, tan: 0, no2: 0, no3: src.no3, o2: 8, co2: 3, tannin: sub.earth ? .2 : sub.tannin || 0, level: 1, sal: 0 },
+      snails: {},
       pools: { food: 0, veg: 0, powder: 0, det: 0, biofilm: 0 },
       algae: .03, bactA: 1e-4, bactB: 1e-4,
       soilCap: sub.soil ? 1 : 0, soilLeach: sub.soil ? 1 : sub.earth ? .5 : sub.leach || 0,
@@ -112,6 +120,8 @@ const Sim = (() => {
     }
     for (const [vk, n] of Object.entries(cfg.shrimp || {})) for (let i = 0; i < n; i++) s.shrimp.push(storeShrimp(W, vk));
     for (const sh of s.shrimp) s.seen[Gen.colorClass(sh.g)] = 1;
+    // espèces d'eau saumâtre dès la mise en eau : on sale tout de suite
+    s.w.sal = Math.max(0, ...s.shrimp.map(sh => GENERA[sh.genus].salt[0]));
     log(W, `${s.name} mis en eau : ${cfg.volume} L, ${sub.name}, ${src.name}.`, 'info');
     if (!cfg.mature) log(W, "Bac neuf : le cycle de l'azote n'est pas fait. Surveille l'ammoniac et les nitrites !", 'warn', true, s);
     return s;
@@ -363,10 +373,11 @@ const Sim = (() => {
 
     // ---------- Crevettes : nourriture ----------
     const shrimp = s.shrimp;
-    let adultEq = 0, Da = 0, Db = 0;
+    let adultEq = 0, Da = 0, Db = 0, grazers = 0;
     for (const sh of shrimp) {
       const m3 = (sh.size / 25) ** 3;
       adultEq += m3;
+      grazers += m3 * (GENERA[sh.genus].algae || 0);
       const e = Math.min(sh.hunger, .08 * dt * mT);
       sh._e = e;
       const need = e * (.6 * m3 + .02);
@@ -386,8 +397,9 @@ const Sim = (() => {
     w.tan += (eaten * .1 + adultEq * .004 * mT * dt) / V;
     P.det += eaten * .2;
     o2cons += adultEq * .008 * mT / V;
-    s.algae = Math.max(.01, s.algae - adultEq / V * .01 / 24 * dt);
-    if (s.glass) s.glass = Math.max(.01, s.glass - adultEq / V * .003 / 24 * dt);   // elles broutent aussi la vitre
+    s.algae = Math.max(.01, s.algae - (adultEq + grazers * 4) / V * .01 / 24 * dt);
+    if (s.glass) s.glass = Math.max(.01, s.glass - (adultEq + grazers * 3) / V * .003 / 24 * dt);   // elles broutent aussi la vitre
+    snailsStep(W, s, V, dt, mT, take);
 
     // Poissons (faim)
     const pr = s.pred;
@@ -456,6 +468,13 @@ const Sim = (() => {
     let males = null;
     const newborn = [];
     const dead = [];
+    // grands prédateurs (Macrobrachium) : les petites crevettes stressent et se font chasser
+    const preds = shrimp.filter(sh => GENERA[sh.genus].predator && isMature(sh));
+    const predSize = preds.reduce((a, p) => Math.max(a, p.size), 0);
+    // territoire : chaque grand individu veut sa part du bac
+    const terr = {};
+    for (const sh of shrimp) if (GENERA[sh.genus].territorial && isMature(sh)) terr[sh.genus] = (terr[sh.genus] || 0) + 1;
+    s.small = {};
 
     for (const sh of shrimp) {
       const g = sh.g;
@@ -465,7 +484,12 @@ const Sim = (() => {
       const r = Math.min(1, (baby ? rb : ra) * vig * Math.sqrt(sh.health + .2));
       sh.hunger = clamp(sh.hunger - sh._e * r + .012 * dt * mT, 0, 1);
       const fit = Gen.fitness(g, w);
-      let stress = (1 - fit.all) + toxSum * (baby ? 1.4 : 1) + (sick && sh.health < .5 ? .25 : 0);
+      const G = GENERA[sh.genus];
+      const small = V < G.minVol ? Math.min(.6, .25 * (G.minVol / V - 1)) : 0;   // bac trop petit pour l'espèce
+      if (small) s.small[sh.genus] = 1;
+      const fear = preds.length && sh.size < predSize * .45 && !G.predator ? .12 * (1 - .5 * cover) : 0;
+      const fight = G.territorial && terr[sh.genus] > 1 ? Math.max(0, terr[sh.genus] * G.minVol / V - 1) * .3 : 0;
+      let stress = (1 - fit.all) + toxSum * (baby ? 1.4 : 1) + (sick && sh.health < .5 ? .25 : 0) + small + fear + fight;
       let dmg = 0;
       if (stress > .35) dmg += (stress - .35) * .025 * Math.max(.12, mT);
       if (sh.hunger > .85) dmg += .008 * mT;
@@ -497,8 +521,8 @@ const Sim = (() => {
           const list = males[sh.genus];
           if (list && list.length && rnd() < .85 * crowdBreed) {
             const dad = list[(rnd() * list.length) | 0];
-            const n = Math.round(GENERA[sh.genus].clutch * g.fert * Gen.fertCost(g) * (sh.size / 25) ** 2 * (.5 + .5 * sh.health) * (.8 + .4 * rnd()));
-            if (n > 0) sh.berried = { days: GENERA[sh.genus].gestation, n, dadDna: dad.dna, dadId: dad.id, dadGen: dad.gen, dadStrain: dad.strain };
+            const n = Math.round(GENERA[sh.genus].clutch * g.fert * Gen.fertCost(g) * (sh.size / GENERA[sh.genus].base.size) ** 2 * (.5 + .5 * sh.health) * (.8 + .4 * rnd()));
+            if (n > 0) { sh.berried = { days: GENERA[sh.genus].gestation, n, dadDna: dad.dna, dadId: dad.id, dadGen: dad.gen, dadStrain: dad.strain }; ev(s, { k: 'berried', id: sh.id }); }
           }
         }
       }
@@ -510,7 +534,18 @@ const Sim = (() => {
         else if (b.days <= 0) {
           let born = 0;
           const strain = sh.strain && sh.strain === b.dadStrain ? sh.strain : null;
-          for (let i = 0; i < b.n; i++) {
+          const lv = GENERA[sh.genus].larvae;
+          let nLarvae = b.n;
+          if (lv === 'brackish' && (w.sal || 0) < LARVA_SALT) {
+            log(W, `🦐 #${sh.id} a libéré ${b.n} larves… mortes en eau douce. Pour ${GENERA[sh.genus].short}, mets la femelle grainée dans un bac saumâtre (≥ ${LARVA_SALT} g/L de sel).`, 'warn', true, s);
+            W.stats.dead['larves en eau douce'] = (W.stats.dead['larves en eau douce'] || 0) + b.n;
+            nLarvae = 0;
+          } else if (lv === 'tiny') {
+            const surv = Math.min(.9, .2 + .45 * cover + (P.powder > V * .05 ? .25 : 0) - (aq && FILTERS[eq.filter].suck ? .15 : 0));
+            nLarvae = Math.round(b.n * Math.max(.05, surv));
+            if (nLarvae < b.n) W.stats.dead['larves'] = (W.stats.dead['larves'] || 0) + b.n - nLarvae;
+          }
+          for (let i = 0; i < nLarvae; i++) {
             if (shrimp.length + newborn.length >= CAP) break;
             const { dna, muts } = Gen.cross(sh.dna, b.dadDna, W.cfg.mutRate);
             const kid = makeShrimp(W, sh.genus, dna, { gen: Math.max(sh.gen, b.dadGen) + 1, mom: sh.id, dad: b.dadId, health: .9, strain });
@@ -525,14 +560,16 @@ const Sim = (() => {
             if (!s.seen[cls]) {
               s.seen[cls] = 1;
               log(W, `✨ Nouveau phénotype : ${cls} (#${kid.id}, fille de #${sh.id}) !`, 'mut', true, s);
+              ev(s, { k: 'new', id: kid.id });
             }
           }
           sh.kids += born;
           W.stats.born += born;
-          if (born < b.n) log(W, `Surpopulation : ${b.n - born} bébés n'ont pas survécu.`, 'warn', false, s);
+          if (born < nLarvae) log(W, `Surpopulation : ${nLarvae - born} bébés n'ont pas survécu.`, 'warn', false, s);
           if (born) {
             log(W, `🥚 #${sh.id} a libéré ${born} bébés.`, 'birth', false, s);
             (s._hatch || (s._hatch = [])).push({ mom: sh.id, n: born, t: W.t });  // pour le rendu
+            ev(s, { k: 'hatch', id: sh.id, n: born });
           }
           sh.berried = null;
         }
@@ -561,6 +598,17 @@ const Sim = (() => {
       for (const sh of list) if (alive.has(sh) && rnd() < p) { dead.push([sh, cause]); alive.delete(sh); }
     };
     kill(nb, pr.hydra * .004 * dt * nb.length / (nb.length + 15), 'hydres');
+    for (const p of preds) {
+      if (!alive.has(p)) continue;
+      const prey = [...alive].filter(x => x !== p && x.size < p.size * .45 && !GENERA[x.genus].predator);
+      if (!prey.length) continue;
+      if (rnd() < .025 * dt * (.3 + p.hunger) * (1 - .6 * cover) * Math.min(1, prey.length / 5 + .2)) {
+        const v = prey[(rnd() * prey.length) | 0];
+        dead.push([v, 'mangée (Macrobrachium)']); alive.delete(v);
+        p.hunger = Math.max(0, p.hunger - .4);
+        ev(s, { k: 'attack', id: p.id, victim: v.id });
+      }
+    }
     kill(nb, pr.plan * .0015 * dt * nb.length / (nb.length + 15), 'planaires');
     if (aq && power && FILTERS[eq.filter].suck) kill(nb.filter(x => x.size < 3), nb.length * FILTERS[eq.filter].suck * .05 * dt, 'aspirée par le filtre');
 
@@ -605,6 +653,48 @@ const Sim = (() => {
     if (W.t - s.lastHist >= 24) { s.lastHist = W.t; sample(s); }
   }
 
+  // ---------- Escargots ----------
+  function snailsStep(W, s, V, dt, mT, take) {
+    const sn = s.snails;
+    if (!sn) return;
+    const P = s.pools, w = s.w;
+    for (const k in sn) {
+      const d = SNAILS[k];
+      let n = sn[k];
+      if (!d || n <= 0) { delete sn[k]; continue; }
+      const sz = d.size * d.size;
+      let got = 0, want = 0;
+      for (const key in d.eat) {
+        const e = d.eat[key];
+        if (key === 'glass') { if (s.glass) s.glass = Math.max(.01, s.glass - n * e * .0025 * 30 / V * dt * mT); got += .3 * e; want += .3 * e; continue; }
+        if (key === 'algae') { s.algae = Math.max(.01, s.algae - n * e * .002 * 30 / V * dt * s.algae); got += .3 * e * Math.min(1, s.algae * 4); want += .3 * e; continue; }
+        const amt = n * e * .03 * sz * dt * mT;
+        want += amt; got += take(key, amt);
+      }
+      w.tan += n * d.load * .003 * dt * mT / V;
+      P.det += got * .15;
+      const fed = want > 0 ? got / want : 1;
+      // chasse des escargots assassins
+      if (d.hunt) {
+        for (const o in sn) {
+          if (o === k || !SNAILS[o] || SNAILS[o].hunt) continue;
+          const eaten = Math.min(sn[o], n * d.hunt * .004 * dt * sn[o] / (sn[o] + 5));
+          sn[o] -= eaten;
+          n += eaten * .02;
+        }
+      }
+      // reproduction (eau douce, nourriture), mortalité (faim, eau, sel, bac trop petit)
+      const cap = V * (d.load < .1 ? 4 : 1);
+      if (d.breed && (w.sal || 0) < 3) n += n * d.breed / 24 * dt * fed * Math.max(0, 1 - n / cap) * Math.min(1, mT);
+      let mort = .00006 + (fed < .3 ? .0008 : 0) + Math.max(0, (s.toxSum || 0) - .5) * .01 + ((w.sal || 0) > (k === 'nerite' ? 15 : 5) ? .02 : 0) + (V < d.minVol ? .002 : 0);
+      if (w.ph < 6.2) mort += .002;   // coquille rongée en eau acide
+      n -= n * mort * dt;
+      if (n < .5) { delete sn[k]; log(W, `🐌 Plus aucun ${d.name.toLowerCase()} dans le bac.`, 'warn', false, s); continue; }
+      if (Math.floor(n) > Math.floor(sn[k]) && Math.floor(n) % 10 === 0) log(W, `🐌 ${Math.floor(n)} ${d.name.toLowerCase()}s : ${d.breed > .01 ? 'ça prolifère, tu nourris peut-être trop.' : 'belle colonie.'}`, 'info', false, s);
+      sn[k] = n;
+    }
+  }
+
   function isMature(sh) { return sh.size >= .72 * sh.g.size && sh.age > 45; }
   function express(sh) { return Math.min(1, .5 + sh.age / 30); }
 
@@ -613,7 +703,7 @@ const Sim = (() => {
       ['température', (1 - fit.fT) * 1.2], ['pH', 1 - fit.fP], ['GH', 1 - fit.fG],
       ['ammoniac', tox.nh3], ['nitrites', tox.no2], ['nitrates', tox.no3], ['manque d\'oxygène', tox.o2],
       ['traitement', tox.med], ['niveau d\'eau', tox.level], ['surpopulation', tox.crowd],
-      ['faim', sh.hunger > .85 ? .6 : 0], ['infection', sick ? .5 : 0],
+      ['faim', sh.hunger > .85 ? .6 : 0], ['infection', sick ? .5 : 0], ['salinité', 1 - (fit.fS ?? 1)],
     ];
     c.sort((a, b) => b[1] - a[1]);
     return c[0][0];
@@ -621,7 +711,7 @@ const Sim = (() => {
 
   function concentrate(s, r) {
     const w = s.w;
-    for (const k of ['gh', 'kh', 'tan', 'no2', 'no3', 'tannin']) w[k] *= r;
+    for (const k of ['gh', 'kh', 'tan', 'no2', 'no3', 'tannin', 'sal']) w[k] = (w[k] || 0) * r;
   }
   // Mélange une fraction p d'une eau source dans le bac
   function mixIn(s, src, p, temp) {
@@ -630,6 +720,7 @@ const Sim = (() => {
     w.kh = w.kh * (1 - p) + src.kh * p;
     w.no3 = w.no3 * (1 - p) + (src.no3 || 0) * p;
     w.tan *= 1 - p; w.no2 *= 1 - p; w.tannin *= 1 - p;
+    w.sal = (w.sal || 0) * (1 - p) + (src.sal || 0) * p;
     if (temp != null) w.temp = w.temp * (1 - p) + temp * p;
   }
 
@@ -649,14 +740,14 @@ const Sim = (() => {
     const mean = {}, sd = {};
     for (const k of GENE_KEYS) mean[k] = 0;
     let juv = 0, adults = 0, berried = 0, F = 0, M = 0, hx = 0, hy = 0;
-    const genus = { neo: 0, car: 0 };
+    const genus = {};
     let r = 0, g = 0, b = 0;
     for (const sh of s.shrimp) {
       for (const k of GENE_KEYS) if (k !== 'hue') mean[k] += sh.g[k];
       hx += Math.cos(sh.g.hue * Math.PI / 180) * sh.g.sat; hy += Math.sin(sh.g.hue * Math.PI / 180) * sh.g.sat;
       if (isMature(sh)) { adults++; sh.sex === 'F' ? F++ : M++; } else juv++;
       if (sh.berried) berried++;
-      genus[sh.genus]++;
+      genus[sh.genus] = (genus[sh.genus] || 0) + 1;
       const c = Gen.color(sh.g), d = sh.g.dens;
       r += c[0] * d + Gen.WATER_RGB[0] * (1 - d); g += c[1] * d + Gen.WATER_RGB[1] * (1 - d); b += c[2] * d + Gen.WATER_RGB[2] * (1 - d);
     }
@@ -679,7 +770,7 @@ const Sim = (() => {
   }
 
   // ---------- Transferts, acclimatation, sacs ----------
-  const waterOf = s => ({ gh: s.w.gh, kh: s.w.kh, ph: s.w.ph, temp: s.w.temp });
+  const waterOf = s => ({ gh: s.w.gh, kh: s.w.kh, ph: s.w.ph, temp: s.w.temp, sal: s.w.sal || 0 });
   // Retire des crevettes d'un bac (ou d'un sac) et les met en acclimatation vers un autre bac
   function startTransfer(W, list, src, toId, method, label) {
     if (!list.length) return null;
@@ -703,7 +794,7 @@ const Sim = (() => {
       const to = tankById(W, tr.to);
       if (!to) continue;
       const d = to.w;
-      const shock = Math.abs(tr.src.gh - d.gh) / 4 + Math.abs(tr.src.ph - d.ph) / .7 + Math.abs(tr.src.temp - d.temp) / 5;
+      const shock = Math.abs(tr.src.gh - d.gh) / 4 + Math.abs(tr.src.ph - d.ph) / .7 + Math.abs(tr.src.temp - d.temp) / 5 + Math.abs((tr.src.sal || 0) - (d.sal || 0)) / 4;
       const f = (tr.method === 'drip' ? .12 : 1) * shock;
       let died = 0, molts = 0;
       for (const sh of tr.shrimp) {
@@ -804,6 +895,20 @@ const Sim = (() => {
       s.pred.fish = Math.max(0, s.pred.fish + d);
       log(W, d > 0 ? `+${d} micro rasbora.` : 'Un micro rasbora retiré.', 'info', false, s);
     },
+    salt(W, s, add) {
+      s.w.sal = Math.max(0, (s.w.sal || 0) + add);
+      log(W, `🧂 Sel marin : ${(s.w.sal).toFixed(1)} g/L.`, 'info', false, s);
+    },
+    addSnail(W, s, k, n) {
+      s.snails = s.snails || {};
+      s.snails[k] = (s.snails[k] || 0) + n;
+      log(W, `🐌 +${n} ${SNAILS[k].name}.`, 'info', false, s);
+    },
+    removeSnail(W, s, k, n) {
+      if (!s.snails || !s.snails[k]) return;
+      s.snails[k] = Math.max(0, s.snails[k] - n);
+      if (s.snails[k] < 1) delete s.snails[k];
+    },
     scrape(W, s) {
       s.glass = .02;
       log(W, '🧽 Vitres raclées.', 'info', false, s);
@@ -878,7 +983,7 @@ const Sim = (() => {
     w.gh = w.gh * w.level + src.gh * p;
     w.kh = w.kh * w.level + src.kh * p;
     w.no3 = w.no3 * w.level + src.no3 * p;
-    w.tan *= w.level; w.no2 *= w.level; w.tannin *= w.level;
+    w.tan *= w.level; w.no2 *= w.level; w.tannin *= w.level; w.sal = (w.sal || 0) * w.level;
     w.level = 1;
     if (!silent) log(W, `Niveau complété (${src.name}).`, 'info', false, s);
   }
@@ -888,6 +993,8 @@ const Sim = (() => {
     for (const s of W.tanks) {
       s._W = W; s._wx = W.weather; s.t = W.t;
       ensureDecor(W, s);
+      if (s.w.sal == null) s.w.sal = 0;
+      if (!s.snails) s.snails = {};
       for (const sh of s.shrimp) if (!sh.g) sh.g = Gen.express(sh.dna, sh.genus);
     }
     for (const b of W.bags) for (const sh of b.shrimp) if (!sh.g) sh.g = Gen.express(sh.dna, sh.genus);

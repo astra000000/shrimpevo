@@ -29,7 +29,7 @@ const Economy = (() => {
     sponge: s => s.eq.filter === 'sponge', canister: s => s.eq.filter === 'canister' || s.eq.filter === 'guarded',
     guard: s => s.eq.filter === 'guarded', heater: s => s.eq.heater, ledPro: s => s.eq.ledPro, co2: s => s.eq.co2,
     air: s => s.env === 'aquarium' && s.eq.air, solar: s => s.env === 'pond' && s.eq.air, shade: s => s.eq.shade,
-    ato: s => s.eq.ato, probePh: s => s.eq.probePh, probeAll: s => s.eq.probeAll,
+    ato: s => s.eq.ato, probePh: s => s.eq.probePh, probeAll: s => s.eq.probeAll, moon: s => s.eq.moon,
   };
   const installed = (W, key) => W.tanks.filter(EQ_USE[key]).length;
   const spare = (W, key) => owned(W, key) - installed(W, key);
@@ -102,13 +102,14 @@ const Economy = (() => {
   function buy(W, key, qty = 1, tank = null) {
     const it = SHOP[key];
     if (!it) return 'Article inconnu.';
-    if (it.plant || it.fish) { if (!tank) return 'Choisis d\'abord un bac.'; }
+    if (it.plant || it.fish || it.snail) { if (!tank) return 'Choisis d\'abord un bac.'; }
     if (it.tank) return 'Utilise createTank.';
     if (!pay(W, it.price * qty)) return `Pas assez de ${MONEY}.`;
     if (it.eq || it.tool || it.deco) W.inv[key] = (W.inv[key] || 0) + qty;
     if (it.use) W.inv[it.use] = (W.inv[it.use] || 0) + it.qty * qty;
     if (it.plant) Sim.A.addPlant(W, tank, it.plant);
     if (it.fish) Sim.A.fish(W, tank, qty);
+    if (it.snail) Sim.A.addSnail(W, tank, it.snail, qty);
     if (career(W)) Sim.log(W, `🛒 Achat : ${qty > 1 ? qty + ' × ' : ''}${it.name} (${fmt(it.price * qty)}).`);
     return null;
   }
@@ -129,7 +130,11 @@ const Economy = (() => {
     W.cur = W.tanks.indexOf(s);
     return s;
   }
-  const SHOP_WATER = { neo: { gh: 7, kh: 4, ph: 7.4, temp: 22 }, car: { gh: 5, kh: 1, ph: 6.5, temp: 22 } };
+  const SHOP_WATER = {
+    neo: { gh: 7, kh: 4, ph: 7.4, temp: 22 }, car: { gh: 5, kh: 1, ph: 6.5, temp: 22 }, amano: { gh: 8, kh: 4, ph: 7.2, temp: 23 },
+    atya: { gh: 12, kh: 6, ph: 7.6, temp: 18 }, rhino: { gh: 9, kh: 5, ph: 7.5, temp: 24 }, halo: { gh: 12, kh: 7, ph: 8, temp: 24, sal: 18 },
+    macro: { gh: 10, kh: 6, ph: 7.4, temp: 25 },
+  };
   // Crevettes d'animalerie : livrées dans un sac à acclimater
   function buyStrain(W, vk, n) {
     const v = VARIETIES[vk];
@@ -173,7 +178,7 @@ const Economy = (() => {
     const founders = s.shrimp.filter(sh => set.has(sh.id));
     if (!founders.length) return 'Aucune crevette sélectionnée.';
     const genus = founders[0].genus;
-    if (founders.some(f => f.genus !== genus)) return 'Une souche ne peut mélanger Neocaridina et Caridina.';
+    if (founders.some(f => f.genus !== genus)) return 'Une souche ne peut pas mélanger deux espèces.';
     const cls = {};
     for (const f of founders) { const k = Gen.colorClass(f.g); cls[k] = (cls[k] || 0) + 1; }
     const main = Object.entries(cls).sort((a, b) => b[1] - a[1])[0][0];
@@ -203,12 +208,12 @@ const Economy = (() => {
     const cls = Gen.colorClass(g);
     const name = cls.split(' à ')[0].split(' ')[0];
     let v = COLOR_VALUE[cls.startsWith('Vert pomme') ? 'Vert pomme' : name] ?? 3;
-    if (g.bands > .3) v += sh.genus === 'car' ? 6 : 4;
+    if (g.bands > .3) v += sh.genus === 'neo' ? 4 : 6;
     if (g.stripe > .4) v += 2;
     if (g.spots > .4) v += 1;
     if (g.rili > .3) v += 3;
     v *= .6 + 1.2 * g.dens;
-    if (sh.genus === 'car') v *= 2;
+    v *= { car: 2, amano: 1.3, atya: 1, rhino: 1.8, halo: 2.2, macro: 2.5 }[sh.genus] || 1;
     v *= Sim.isMature(sh) ? 1 : sh.size > 7 ? .6 : .3;
     v *= .5 + .5 * Math.max(0, sh.health);
     if (!shopClasses) shopClasses = new Set(Object.entries(VARIETIES).map(([k, x]) => Gen.colorClass(Gen.express(Gen.strainDNA(k, 0), x.genus))));
